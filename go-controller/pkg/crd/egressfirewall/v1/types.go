@@ -68,6 +68,7 @@ type EgressFirewallPort struct {
 // EgressFirewallDestination is the endpoint that traffic is either allowed or denied to
 type EgressFirewallDestination struct {
 	// cidrSelector is the CIDR range to allow/deny traffic to.
+	// +kubebuilder:validation:Pattern=^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])(\/(3[0-2]|[1-2][0-9]|[0-9]))$
 	CIDRSelector string `json:"cidrSelector"`
 }
 
