@@ -556,7 +556,7 @@ func main() {
 	sslCertKeys := "-p /ovn-cert/tls.key -c /ovn-cert/tls.crt -C /ovn-ca/ca-bundle.crt "
 
 	//nbcmd := "-p /ovn-cert/tls.key -c /ovn-cert/tls.crt -C /ovn-ca/ca-bundle.crt --db "
-	nbUri := " "
+	nbUri := ""
 	nbCount := 0
 	for k, v := range masters {
 		logrus.Debugf("master name: %s has IP %s", k, v)
@@ -571,7 +571,7 @@ func main() {
 	nbcmd := sslCertKeys + "--db " + nbUri
 	logrus.Debugf("nbcmd is %s", nbcmd)
 
-	sbUri := " "
+	sbUri := ""
 	sbCount := 0
 	for _, v := range masters {
 		sbUri += "ssl:" + v + ":9642"
@@ -629,12 +629,14 @@ func main() {
 	fromSrcCmd := "ovn-trace " + sbcmd + " " + srcPodInfo.NodeName + " " + fromSrc
 
 	logrus.Debugf("ovn-trace command from src to dst is %s", fromSrcCmd)
+	logrus.Infof("ovn-trace command from src to dst is %s", fromSrcCmd)
 	ovnSrcDstOut, ovnSrcDstErr, err := execInPod(coreclient, restconfig, ovnNamespace, srcPodInfo.OvnKubeContainerPodName, "ovnkube-node", fromSrcCmd, "")
 	if err != nil {
 		logrus.Errorf("Source to Destination ovn-trace error %v stdOut: %s\n stdErr: %s", err, ovnSrcDstOut, ovnSrcDstErr)
 		os.Exit(-1)
 	}
-	fmt.Printf("Source to Destination ovn-trace Output: %s\n", ovnSrcDstOut)
+	logrus.Debugf("Source to Destination ovn-trace Output: %s\n", ovnSrcDstOut)
+	//fmt.Printf("Source to Destination ovn-trace Output: %s\n", ovnSrcDstOut)
 
 	// Trace from dst pod to src pod
 
@@ -656,12 +658,14 @@ func main() {
 	fromDstCmd := "ovn-trace " + sbcmd + " " + dstPodInfo.NodeName + " " + fromDst
 
 	logrus.Debugf("ovn-trace command from dst to src is %s", fromDstCmd)
+	logrus.Infof("ovn-trace command from dst to src is %s", fromDstCmd)
 	ovnDstSrcOut, ovnDstSrcErr, err := execInPod(coreclient, restconfig, ovnNamespace, srcPodInfo.OvnKubeContainerPodName, "ovnkube-node", fromDstCmd, "")
 	if err != nil {
 		logrus.Errorf("Source to Destination ovn-trace error %v stdOut: %s\n stdErr: %s", err, ovnDstSrcOut, ovnDstSrcErr)
 		os.Exit(-1)
 	}
-	fmt.Printf("Destination to Source ovn-trace Output: %s\n", ovnDstSrcOut)
+	logrus.Debugf("Destination to Source ovn-trace Output: %s\n", ovnDstSrcOut)
+	//fmt.Printf("Destination to Source ovn-trace Output: %s\n", ovnDstSrcOut)
 
 	// ovs-appctl ofproto/trace: src pod to dst pod
 
@@ -677,13 +681,15 @@ func main() {
 
 	fromSrcCmd = "ovs-appctl " + fromSrc
 
-	logrus.Debugf("ovs-appctl ofproto/trace command from src to dst is %s", fromSrc)
+	logrus.Debugf("ovs-appctl ofproto/trace command from src to dst is %s", fromSrcCmd)
+	logrus.Infof("ovs-appctl ofproto/trace command from src to dst is %s", fromSrcCmd)
 	appSrcDstOut, appSrcDstErr, err := execInPod(coreclient, restconfig, ovnNamespace, srcPodInfo.OvnKubeContainerPodName, "ovnkube-node", fromSrcCmd, "")
 	if err != nil {
 		logrus.Errorf("Source to Destination ovs-appctl error %v stdOut: %s\n stdErr: %s", err, appSrcDstOut, appSrcDstErr)
 		os.Exit(-1)
 	}
-	fmt.Printf("Source to Destination ovs-appctl Output: %s\n", appSrcDstOut)
+	logrus.Debugf("Source to Destination ovs-appctl Output: %s\n", appSrcDstOut)
+	//fmt.Printf("Source to Destination ovs-appctl Output: %s\n", appSrcDstOut)
 
 	// ovs-appctl ofproto/trace: dst pod to src pod
 
@@ -699,30 +705,48 @@ func main() {
 
 	fromDstCmd = "ovs-appctl " + fromDst
 
-	logrus.Debugf("ovs-appctl ofproto/trace command from dst to src is %s", fromDst)
+	logrus.Debugf("ovs-appctl ofproto/trace command from dst to src is %s", fromDstCmd)
+	logrus.Infof("ovs-appctl ofproto/trace command from dst to src is %s", fromDstCmd)
 	appDstSrcOut, appDstSrcErr, err := execInPod(coreclient, restconfig, ovnNamespace, dstPodInfo.OvnKubeContainerPodName, "ovnkube-node", fromDstCmd, "")
 	if err != nil {
 		logrus.Errorf("Destination to Source ovs-appctl error %v stdOut: %s\n stdErr: %s", err, appDstSrcOut, appDstSrcErr)
 		os.Exit(-1)
 	}
-	fmt.Printf("Destination to Source ovs-appctl Output: %s\n", appDstSrcOut)
+	logrus.Debugf("Destination to Source ovs-appctl Output: %s\n", appDstSrcOut)
+	//fmt.Printf("Destination to Source ovs-appctl Output: %s\n", appDstSrcOut)
 
 	// ovn-detrace src - dst
+	existsCmd := "ovn-detrace --help"
+	dtraceExistsOut, dtraceExistsErr, err := execInPod(coreclient, restconfig, ovnNamespace, srcPodInfo.OvnKubeContainerPodName, "ovnkube-node", existsCmd, "")
+	if err != nil {
+		logrus.Errorf("ovn-detrace error %v stdOut: %s\n stdErr: %s", err, dtraceExistsOut, dtraceExistsErr)
 
-	fromSrc  = "--ovnsb=" + sbUri + " "
-	fromSrc += "--ovnnb=" + nbUri + " "
+		installCmd := "pip3 install ovs"
+		dtraceInstallOut, dtraceInstallErr, err := execInPod(coreclient, restconfig, ovnNamespace, srcPodInfo.OvnKubeContainerPodName, "ovnkube-node", installCmd, "")
+		if err != nil {
+		   logrus.Errorf("ovn-detrace error %v stdOut: %s\n stdErr: %s", err, dtraceInstallOut, dtraceInstallErr)
+		}
+		fmt.Printf("install ovn-detrace Output: %s\n", dtraceInstallOut)
+	}
+
+	fromSrc  = "--ovnnb=" + nbUri + " "
+	fromSrc += "--ovnsb=" + sbUri + " "
 	fromSrc += sslCertKeys + " "
-	fromSrc += "--ovs --ovsdb=unix:/var/run/openvswitch/db.sock "
+	fromSrc += "--ovs --ovsdb=unix:/var/run/openvswitch/db.sock < "
+	fromSrc += "\"" + strings.TrimSuffix(appSrcDstOut, "\n") + "\""
 
 	fromSrcCmd = "ovn-detrace " + fromSrc
 
-	logrus.Debugf("ovn-detrace command from src to dst is %s", fromSrc)
-	dtraceSrcDstOut, dtraceSrcDstErr, err := execInPod(coreclient, restconfig, ovnNamespace, srcPodInfo.OvnKubeContainerPodName, "ovnkube-node", fromSrcCmd, ovnSrcDstOut)
+	logrus.Debugf("ovn-detrace command from src to dst is %s", fromSrcCmd)
+	logrus.Infof("ovn-detrace command from src to dst is %s", fromSrcCmd)
+	dtraceSrcDstOut, dtraceSrcDstErr, err := execInPod(coreclient, restconfig, ovnNamespace, srcPodInfo.OvnKubeContainerPodName, "ovnkube-node", fromSrcCmd, "")
+	//dtraceSrcDstOut, dtraceSrcDstErr, err := execInPod(coreclient, restconfig, ovnNamespace, srcPodInfo.OvnKubeContainerPodName, "ovnkube-node", fromSrcCmd, appSrcDstOut)
 	if err != nil {
 		logrus.Errorf("Source to Destination ovn-detrace error %v stdOut: %s\n stdErr: %s", err, dtraceSrcDstOut, dtraceSrcDstErr)
 		os.Exit(-1)
 	}
-	fmt.Printf("Source to Destination ovn-detrace Output: %s\n", dtraceSrcDstOut)
+	logrus.Debugf("Source to Destination ovn-detrace Output: %s\n", dtraceSrcDstOut)
+	//fmt.Printf("Source to Destination ovn-detrace Output: %s\n", dtraceSrcDstOut)
 
 	fromDst  = "--ovnsb=" + sbUri + " "
 	fromDst += "--ovnnb=" + nbUri + " "
@@ -731,13 +755,15 @@ func main() {
 
 	fromDstCmd = "ovn-detrace " + fromDst
 
-	logrus.Debugf("ovn-detrace command from dst to src is %s", fromDst)
-	dtraceDstSrcOut, dtraceDstSrcErr, err := execInPod(coreclient, restconfig, ovnNamespace, dstPodInfo.OvnKubeContainerPodName, "ovnkube-node", fromDstCmd, ovnDstSrcOut)
+	logrus.Debugf("ovn-detrace command from dst to src is %s", fromDstCmd)
+	logrus.Infof("ovn-detrace command from dst to src is %s", fromDstCmd)
+	dtraceDstSrcOut, dtraceDstSrcErr, err := execInPod(coreclient, restconfig, ovnNamespace, dstPodInfo.OvnKubeContainerPodName, "ovnkube-node", fromDstCmd, appDstSrcOut)
 	if err != nil {
 		logrus.Errorf("Destination to Source ovn-detrace error %v stdOut: %s\n stdErr: %s", err, dtraceDstSrcOut, dtraceDstSrcErr)
 		os.Exit(-1)
 	}
-	fmt.Printf("Destination to Source detrace Output: %s\n", appDstSrcOut)
+	logrus.Debugf("Destination to Source detrace Output: %s\n", appDstSrcOut)
+	//fmt.Printf("Destination to Source detrace Output: %s\n", appDstSrcOut)
 
 	// TODO Next
 	//
