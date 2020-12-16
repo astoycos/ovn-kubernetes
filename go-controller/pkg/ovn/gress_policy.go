@@ -180,9 +180,6 @@ func (gp *gressPolicy) constructMatchString(v4AddressSets, v6AddressSets []strin
 		matchStr = fmt.Sprintf("(%s || %s)", v4MatchStr, v6MatchStr)
 	}
 
-	// Account for Pod -> SVC VIP snatting
-	matchStr = fmt.Sprintf("(%s) || (output == inport && ct.snat)", matchStr)
-
 	return matchStr
 }
 
@@ -250,8 +247,11 @@ func (gp *gressPolicy) localPodAddACL(portGroupName, portGroupUUID string) {
 		lportMatch = fmt.Sprintf("inport == @%s", portGroupName)
 	}
 
+	// Account for Pod -> SVC VIP snatting
+	hairpinMatch := "output == inport && ct.snat"
+
 	if len(gp.portPolicies) == 0 {
-		match := fmt.Sprintf("match=\"%s && %s\"", l3Match, lportMatch)
+		match := fmt.Sprintf("match=\"(%s && %s) || (%s)\"", l3Match, lportMatch, hairpinMatch)
 		l4Match := noneMatch
 
 		if len(gp.ipBlock) > 0 {
@@ -276,7 +276,7 @@ func (gp *gressPolicy) localPodAddACL(portGroupName, portGroupUUID string) {
 		if err != nil {
 			continue
 		}
-		match := fmt.Sprintf("match=\"%s && %s && %s\"", l3Match, l4Match, lportMatch)
+		match := fmt.Sprintf("match=\"(%s && %s && %s) || (%s)\"", l3Match, l4Match, lportMatch, hairpinMatch)
 		if len(gp.ipBlock) > 0 {
 			// Add ACL allow rule for IPBlock CIDR
 			cidrMatches = gp.getMatchFromIPBlock(lportMatch, l4Match)
