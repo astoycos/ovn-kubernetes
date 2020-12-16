@@ -179,6 +179,10 @@ func (gp *gressPolicy) constructMatchString(v4AddressSets, v6AddressSets []strin
 	if len(v4AddressSets) > 0 && len(v6AddressSets) > 0 {
 		matchStr = fmt.Sprintf("(%s || %s)", v4MatchStr, v6MatchStr)
 	}
+
+	// Account for Pod -> SVC VIP snatting
+	matchStr = fmt.Sprintf("(%s) || (output == inport && ct.snat)", matchStr)
+
 	return matchStr
 }
 
