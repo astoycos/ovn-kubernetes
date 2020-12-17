@@ -3,6 +3,7 @@ package ovn
 import (
 	"fmt"
 	"net"
+	"reflect"
 	"sync"
 
 	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/factory"
@@ -23,6 +24,7 @@ type namespacePolicy struct {
 	ingressPolicies []*gressPolicy
 	egressPolicies  []*gressPolicy
 	podHandlerList  []*factory.Handler
+	svcHandlerList  []*factory.Handler
 	nsHandlerList   []*factory.Handler
 	localPods       map[string]*lpInfo //pods effected by this policy
 	portGroupUUID   string             //uuid for OVN port_group
@@ -38,6 +40,7 @@ func NewNamespacePolicy(policy *knet.NetworkPolicy) *namespacePolicy {
 		ingressPolicies: make([]*gressPolicy, 0),
 		egressPolicies:  make([]*gressPolicy, 0),
 		podHandlerList:  make([]*factory.Handler, 0),
+		svcHandlerList:  make([]*factory.Handler, 0),
 		nsHandlerList:   make([]*factory.Handler, 0),
 		localPods:       make(map[string]*lpInfo),
 	}
@@ -627,10 +630,13 @@ func (oc *Controller) addNetworkPolicy(policy *knet.NetworkPolicy) {
 		}
 
 		if hasAnyLabelSelector(ingressJSON.From) {
+			klog.V(5).Infof("Network policy %s with ingress rule %s has a selector", policy.Name, ingress.policyName)
 			if err := ingress.ensurePeerAddressSet(oc.addressSetFactory); err != nil {
 				klog.Errorf(err.Error())
 				continue
 			}
+			// Start service handlers ONLY if there's an ingress Address Set
+			oc.handlePeerService(policy, ingress, np)
 		}
 
 		for _, fromJSON := range ingressJSON.From {
@@ -662,6 +668,7 @@ func (oc *Controller) addNetworkPolicy(policy *knet.NetworkPolicy) {
 		}
 
 		if hasAnyLabelSelector(egressJSON.To) {
+			klog.V(5).Infof("Network policy %s with egress rule %s has a selector", policy.Name, egress.policyName)
 			if err := egress.ensurePeerAddressSet(oc.addressSetFactory); err != nil {
 				klog.Errorf(err.Error())
 				continue
@@ -787,6 +794,51 @@ func (oc *Controller) handlePeerPodSelectorDelete(gp *gressPolicy, obj interface
 	}
 }
 
+// handlePeerServiceSelectorAddUpdate adds the VIP of a service that selects
+// pods that are selected by the Network Policy
+func (oc *Controller) handlePeerServiceAddUpdate(gp *gressPolicy, obj interface{}) {
+	service := obj.(*kapi.Service)
+	klog.V(5).Infof("A Service: %s matches the namespace as the gress policy: %s", service.Name, gp.policyName)
+	if err := gp.addPeerSvcVip(service); err != nil {
+		klog.Errorf(err.Error())
+	}
+}
+
+// handlePeerServiceDelete removes the VIP of a service that selects
+// pods that are selected by the Network Policy
+func (oc *Controller) handlePeerServiceDelete(gp *gressPolicy, obj interface{}) {
+	service := obj.(*kapi.Service)
+	if err := gp.deletePeerSvcVip(service); err != nil {
+		klog.Errorf(err.Error())
+	}
+}
+
+// Watch Services that are in the same Namespace as the NP
+// To account for hairpined traffic
+func (oc *Controller) handlePeerService(
+	policy *knet.NetworkPolicy, gp *gressPolicy, np *namespacePolicy) {
+
+	h := oc.watchFactory.AddFilteredServiceHandler(policy.Namespace,
+		cache.ResourceEventHandlerFuncs{
+			AddFunc: func(obj interface{}) {
+				// Service is matched so add VIP to addressSet
+				oc.handlePeerServiceAddUpdate(gp, obj)
+			},
+			DeleteFunc: func(obj interface{}) {
+				// If Service that has matched pods are deleted remove VIP
+				oc.handlePeerServiceDelete(gp, obj)
+			},
+			UpdateFunc: func(oldObj, newObj interface{}) {
+				// If Service Is updated make sure same pods are still matched
+				if !reflect.DeepEqual(oldObj, newObj) {
+					oc.handlePeerServiceDelete(gp, oldObj)
+					oc.handlePeerServiceAddUpdate(gp, newObj)
+				}
+			},
+		}, nil)
+	np.svcHandlerList = append(np.svcHandlerList, h)
+}
+
 func (oc *Controller) handlePeerPodSelector(
 	policy *knet.NetworkPolicy, podSelector *metav1.LabelSelector,
 	gp *gressPolicy, np *namespacePolicy) {
@@ -908,5 +960,8 @@ func (oc *Controller) shutdownHandlers(np *namespacePolicy) {
 	}
 	for _, handler := range np.nsHandlerList {
 		oc.watchFactory.RemoveNamespaceHandler(handler)
+	}
+	for _, handler := range np.svcHandlerList {
+		oc.watchFactory.RemoveServiceHandler(handler)
 	}
 }
