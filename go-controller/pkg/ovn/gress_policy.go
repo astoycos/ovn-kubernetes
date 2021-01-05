@@ -103,11 +103,11 @@ func (gp *gressPolicy) addPeerSvcVip(service *v1.Service) error {
 			service.ObjectMeta.Name, gp.policyName)
 	}
 
-	klog.V(5).Infof("Service %s is applied to same namespace as network Policy, finding cluster IPs", service.Name)
-	ip := getSvcVips(service)
+	klog.V(5).Infof("Service %s is applied to same namespace as network Policy, finding Service VIPs", service.Name)
+	ips := getSvcVips(service)
 
-	klog.V(5).Infof("Adding SVC clusterIP to gressPolicy's Address Set: %v", ip)
-	return gp.peerAddressSet.AddIPs(ip)
+	klog.V(5).Infof("Adding SVC clusterIP to gressPolicy's Address Set: %v", ips)
+	return gp.peerAddressSet.AddIPs(ips)
 }
 
 func (gp *gressPolicy) deletePeerSvcVip(service *v1.Service) error {

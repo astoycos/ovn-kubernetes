@@ -527,10 +527,10 @@ func getSvcVips(service *kapi.Service) []net.IP {
 			klog.Errorf("Cannot get gateways: %s", err)
 		}
 		for _, gatewayRouter := range gatewayRouters {
-			//VIPs would be the physical IPS of the GRs(IPs of the node) in this case
+			// VIPs would be the physical IPS of the GRs(IPs of the node) in this case
 			physicalIPs, err := gateway.GetGatewayPhysicalIPs(gatewayRouter)
 			if err != nil {
-				klog.Errorf("Gateway router %s does not have physical ips (%v)", gatewayRouter, err)
+				klog.Errorf("Unable to get gateway router %s physical ip, error: %v", gatewayRouter, err)
 				continue
 			}
 
