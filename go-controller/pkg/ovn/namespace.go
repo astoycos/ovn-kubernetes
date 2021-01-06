@@ -21,6 +21,8 @@ const (
 	routingExternalGWsAnnotation = "k8s.ovn.org/routing-external-gws"
 	routingNamespaceAnnotation   = "k8s.ovn.org/routing-namespaces"
 	routingNetworkAnnotation     = "k8s.ovn.org/routing-network"
+	// Enable ACL Logging to log file annotation
+	aclLoggingAnnotation = "k8s.ovn.org/acl-logging"
 )
 
 func (oc *Controller) syncNamespaces(namespaces []interface{}) {
@@ -196,6 +198,10 @@ func (oc *Controller) AddNamespace(ns *kapi.Namespace) {
 			klog.Errorf(err.Error())
 		}
 	}
+	annotation = ns.Annotations[aclLoggingAnnotation]
+	if annotation != "" && oc.aclLoggingCanEnable(annotation, nsInfo) {
+		klog.Infof("Namespace %s: ACL logging is set to deny=%s allow=%s", ns.Name, nsInfo.aclLogging.Deny, nsInfo.aclLogging.Allow)
+	}
 	nsInfo.addressSet, err = oc.createNamespaceAddrSetAllPods(ns.Name)
 	if err != nil {
 		klog.Errorf(err.Error())
@@ -270,6 +276,20 @@ func (oc *Controller) updateNamespace(old, newer *kapi.Namespace) {
 				}
 			}
 		}
+	}
+	annotation = newer.Annotations[aclLoggingAnnotation]
+	oldAnnotation = old.Annotations[aclLoggingAnnotation]
+	// support for ACL logging update, if new annotation is empty, make sure we propagate new setting
+	if annotation != oldAnnotation && (annotation == "" || oc.aclLoggingCanEnable(annotation, nsInfo)) {
+		// deny rules are all one per namespace
+		for _, np := range nsInfo.networkPolicies {
+			if err := oc.setACLDenyLogging(np, annotation); err != nil {
+				klog.Warningf(err.Error())
+			} else {
+				break
+			}
+		}
+		klog.Infof("Namespace %s: ACL logging setting updated to  deny=%s allow=%s", old.Name, nsInfo.aclLogging.Deny, nsInfo.aclLogging.Allow)
 	}
 	oc.multicastUpdateNamespace(newer, nsInfo)
 }

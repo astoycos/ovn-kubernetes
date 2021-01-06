@@ -67,12 +67,14 @@ var (
 
 	// Logging holds logging-related parsed config file parameters and command-line overrides
 	Logging = LoggingConfig{
-		File:              "", // do not log to a file by default
-		CNIFile:           "",
-		Level:             4,
-		LogFileMaxSize:    100, // Size in Megabytes
-		LogFileMaxBackups: 5,
-		LogFileMaxAge:     5, //days
+		File:                "", // do not log to a file by default
+		CNIFile:             "",
+		Level:               4,
+		LogFileMaxSize:      100, // Size in Megabytes
+		LogFileMaxBackups:   5,
+		LogFileMaxAge:       5, //days
+		ACLLoggingEnable:    false,
+		ACLLoggingRateLimit: 20,
 	}
 
 	// CNI holds CNI-related parsed config file parameters and command-line overrides
@@ -183,6 +185,9 @@ type LoggingConfig struct {
 	LogFileMaxBackups int `gcfg:"logfile-maxbackups"`
 	// LogFileMaxAge represents the maximum number of days to retain old log files
 	LogFileMaxAge int `gcfg:"logfile-maxage"`
+	// Enable ACL logging and create rate-limiting meter
+	ACLLoggingEnable    bool `gcfg:"acl-logging"`
+	ACLLoggingRateLimit int  `gcfg:"acl-logging-rate-limit"`
 }
 
 // CNIConfig holds CNI-related parsed config file parameters and command-line overrides
@@ -584,6 +589,17 @@ var CommonFlags = []cli.Flag{
 		Usage:       "Maximum number of days to retain old log files",
 		Destination: &cliConfig.Logging.LogFileMaxAge,
 		Value:       Logging.LogFileMaxAge,
+	},
+	&cli.BoolFlag{
+		Name:        "acl-logging",
+		Usage:       "Setup acl-logging metering and enable ACL logging.",
+		Destination: &cliConfig.Logging.ACLLoggingEnable,
+	},
+	&cli.IntFlag{
+		Name:        "acl-logging-rate-limit",
+		Usage:       "The largest number of messages per second that gets logged before drop (default 20)",
+		Destination: &cliConfig.Logging.ACLLoggingRateLimit,
+		Value:       20,
 	},
 }
 

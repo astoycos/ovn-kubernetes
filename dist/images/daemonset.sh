@@ -33,6 +33,8 @@ OVN_LOGLEVEL_NBCTLD=""
 OVNKUBE_LOGFILE_MAXSIZE=""
 OVNKUBE_LOGFILE_MAXBACKUPS=""
 OVNKUBE_LOGFILE_MAXAGE=""
+OVN_ACL_LOGGING_ENABLE=""
+OVN_ACL_LOGGING_RATE_LIMIT=""
 OVN_MASTER_COUNT=""
 OVN_REMOTE_PROBE_INTERVAL=""
 OVN_HYBRID_OVERLAY_ENABLE=""
@@ -112,6 +114,12 @@ while [ "$1" != "" ]; do
     ;;
   --ovnkube-logfile-maxage)
     OVNKUBE_LOGFILE_MAXAGE=$VALUE
+    ;;
+  --acl-logging)
+    OVN_ACL_LOGGING_ENABLE=$VALUE
+    ;;
+  --acl-logging-rate-limit)
+    OVN_ACL_LOGGING_RATE_LIMIT=$VALUE
     ;;
   --ssl)
     OVN_SSL_ENABLE="yes"
@@ -204,6 +212,10 @@ ovnkube_logfile_maxbackups=${OVNKUBE_LOGFILE_MAXBACKUPS:-"5"}
 echo "ovnkube_logfile_maxbackups: ${ovnkube_logfile_maxbackups}"
 ovnkube_logfile_maxage=${OVNKUBE_LOGFILE_MAXAGE:-"5"}
 echo "ovnkube_logfile_maxage: ${ovnkube_logfile_maxage}"
+ovn_acl_logging_enable=${OVN_ACL_LOGGING_ENABLE:-"no"}
+echo "ovn_acl_logging_enable: ${ovn_acl_logging_enable}"
+ovn_acl_logging_rate_limit=${OVN_ACL_LOGGING_RATE_LIMIT:-"20"}
+echo "ovn_acl_logging_rate_limit: ${ovn_acl_logging_rate_limit}"
 ovn_hybrid_overlay_enable=${OVN_HYBRID_OVERLAY_ENABLE}
 echo "ovn_hybrid_overlay_enable: ${ovn_hybrid_overlay_enable}"
 ovn_egress_ip_enable=${OVN_EGRESSIP_ENABLE}
@@ -250,6 +262,7 @@ ovn_image=${image} \
   ovnkube_logfile_maxsize=${ovnkube_logfile_maxsize} \
   ovnkube_logfile_maxbackups=${ovnkube_logfile_maxbackups} \
   ovnkube_logfile_maxage=${ovnkube_logfile_maxage} \
+  ovn_acl_logging_enable=${ovn_acl_logging_enable} \
   ovn_hybrid_overlay_net_cidr=${ovn_hybrid_overlay_net_cidr} \
   ovn_hybrid_overlay_enable=${ovn_hybrid_overlay_enable} \
   ovn_disable_snat_multiple_gws=${ovn_disable_snat_multiple_gws} \
@@ -269,6 +282,8 @@ ovn_image=${image} \
   ovnkube_logfile_maxsize=${ovnkube_logfile_maxsize} \
   ovnkube_logfile_maxbackups=${ovnkube_logfile_maxbackups} \
   ovnkube_logfile_maxage=${ovnkube_logfile_maxage} \
+  ovn_acl_logging_enable=${ovn_acl_logging_enable} \
+  ovn_acl_logging_rate_limit=${ovn_acl_logging_rate_limit} \
   ovn_hybrid_overlay_net_cidr=${ovn_hybrid_overlay_net_cidr} \
   ovn_hybrid_overlay_enable=${ovn_hybrid_overlay_enable} \
   ovn_disable_snat_multiple_gws=${ovn_disable_snat_multiple_gws} \

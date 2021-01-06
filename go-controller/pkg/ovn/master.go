@@ -38,7 +38,8 @@ const (
 	OvnNodeAnnotationRetryInterval = 100 * time.Millisecond
 	OvnNodeAnnotationRetryTimeout  = 1 * time.Second
 	OvnSingleJoinSwitchTopoVersion = 1
-	OvnCurrentTopologyVersion      = OvnSingleJoinSwitchTopoVersion
+	OvnNamespacedDenyPGTopoVersion = 2
+	OvnCurrentTopologyVersion      = OvnNamespacedDenyPGTopoVersion
 )
 
 type ovnkubeMasterLeaderMetrics struct{}
@@ -121,6 +122,13 @@ func (oc *Controller) Start(nodeName string, wg *sync.WaitGroup) error {
 
 	go leaderElector.Run(context.Background())
 
+	return nil
+}
+
+// cleanup obsolete *gressDefaultDeny port groups
+func (oc *Controller) upgradeToNamespacedDenyPGOVNTopology(existingNodeList *kapi.NodeList) error {
+	deletePortGroup("ingressDefaultDeny")
+	deletePortGroup("egressDefaultDeny")
 	return nil
 }
 
@@ -207,6 +215,9 @@ func (oc *Controller) upgradeOVNTopology(existingNodes *kapi.NodeList) error {
 	// If current DB version is greater than OvnSingleJoinSwitchTopoVersion, no need to upgrade to single switch topology
 	if ver < OvnSingleJoinSwitchTopoVersion {
 		return oc.upgradeToSingleSwitchOVNTopology(existingNodes)
+	}
+	if ver < OvnNamespacedDenyPGTopoVersion {
+		return oc.upgradeToNamespacedDenyPGOVNTopology(existingNodes)
 	}
 	return nil
 }
@@ -300,6 +311,16 @@ func (oc *Controller) StartClusterMaster(masterNodeName string) error {
 		if !config.IPv4Mode {
 			klog.Warningf("Multicast support enabled, but can not be used with single-stack IPv6. Disabling Multicast Support")
 			oc.multicastSupport = false
+		}
+	}
+
+	if oc.aclLoggingEnabled {
+		if stdout, _, err := util.RunOVNNbctl("meter-list"); err == nil && !strings.Contains(stdout, "acl-logging:") {
+			dropRate := strconv.Itoa(config.Logging.ACLLoggingRateLimit)
+			if _, _, err := util.RunOVNNbctl("meter-add", "acl-logging", "drop", dropRate, "pktps"); err != nil {
+				klog.Warningf("ACL logging support enabled, however acl-logging meter could not be created. Disabling ACL logging support")
+				oc.aclLoggingEnabled = false
+			}
 		}
 	}
 

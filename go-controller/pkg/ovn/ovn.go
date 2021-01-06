@@ -66,6 +66,12 @@ type loadBalancerConf struct {
 	rejectACL string
 }
 
+// ACL logging severity levels
+type ACLLoggingLevels struct {
+	Allow string `json:"allow,omitempty"`
+	Deny  string `json:"deny,omitempty"`
+}
+
 // namespaceInfo contains information related to a Namespace. Use oc.getNamespaceLocked()
 // or oc.waitForNamespaceLocked() to get a locked namespaceInfo for a Namespace, and call
 // nsInfo.Unlock() on it when you are done with it. (No code outside of the code that
@@ -102,6 +108,9 @@ type namespaceInfo struct {
 	portGroupUUID string
 
 	multicastEnabled bool
+
+	// If not empty, then it has to be set to a logging a severity level, e.g. "notice", "alert", etc
+	aclLogging ACLLoggingLevels
 }
 
 // Controller structure is the object which holds the controls for starting
@@ -148,12 +157,6 @@ type Controller struct {
 	// Port group for all cluster logical switch ports
 	clusterPortGroupUUID string
 
-	// Port group for ingress deny rule
-	portGroupIngressDeny string
-
-	// Port group for egress deny rule
-	portGroupEgressDeny string
-
 	// For each logical port, the number of network policies that want
 	// to add a ingress deny rule.
 	lspIngressDenyCache map[string]int
@@ -172,6 +175,9 @@ type Controller struct {
 	eIPC egressIPController
 
 	egressFirewallDNS *EgressDNS
+
+	// Is ACL logging enabled during configuration time?
+	aclLoggingEnabled bool
 
 	// Map of load balancers to service namespace
 	serviceVIPToName map[ServiceVIPKey]types.NamespacedName
@@ -272,6 +278,7 @@ func NewOvnController(ovnClient *util.OVNClientset, wf *factory.WatchFactory,
 		},
 		loadbalancerClusterCache: make(map[kapi.Protocol]string),
 		multicastSupport:         config.EnableMulticast,
+		aclLoggingEnabled:        config.Logging.ACLLoggingEnable,
 		serviceVIPToName:         make(map[ServiceVIPKey]types.NamespacedName),
 		serviceVIPToNameLock:     sync.Mutex{},
 		serviceLBMap:             make(map[string]map[string]*loadBalancerConf),
@@ -1156,6 +1163,43 @@ func (oc *Controller) GetServiceVIPToName(vip string, protocol kapi.Protocol) (t
 	defer oc.serviceVIPToNameLock.Unlock()
 	namespace, ok := oc.serviceVIPToName[ServiceVIPKey{vip, protocol}]
 	return namespace, ok
+}
+
+// GetNamespacePolicyACLLogging retrieves ACL deny policy logging setting for the Namespace
+func (oc *Controller) GetNamespacePolicyACLLogging(ns string) *ACLLoggingLevels {
+	nsInfo := oc.getNamespaceLocked(ns)
+	if nsInfo == nil {
+		return &ACLLoggingLevels{
+			Allow: "",
+			Deny:  "",
+		}
+	}
+	defer nsInfo.Unlock()
+	return &nsInfo.aclLogging
+}
+
+// Verify if controller can support ACL logging and validate annotation
+func (oc *Controller) aclLoggingCanEnable(annotation string, nsInfo *namespaceInfo) bool {
+	if !oc.aclLoggingEnabled {
+		return false
+	}
+	var aclLevels ACLLoggingLevels
+	err := json.Unmarshal([]byte(annotation), &aclLevels)
+	if err != nil {
+		return false
+	}
+	okCnt := 0
+	for _, s := range []string{"alert", "warning", "notice", "info", "debug"} {
+		if aclLevels.Deny != "" && s == aclLevels.Deny {
+			nsInfo.aclLogging.Deny = aclLevels.Deny
+			okCnt++
+		}
+		if aclLevels.Allow != "" && s == aclLevels.Allow {
+			nsInfo.aclLogging.Allow = aclLevels.Allow
+			okCnt++
+		}
+	}
+	return okCnt > 0
 }
 
 // setServiceLBToACL associates an empty load balancer with its associated ACL reject rule
