@@ -482,6 +482,33 @@ func getDatabaseURIs(coreclient *corev1client.CoreV1Client, restconfig *rest.Con
 	return nbAddress, sbAddress, protocol == "ssl", nil
 }
 
+func contains(s []string, str string) bool {
+	for _, v := range s {
+		if v == str {
+			return true
+		}
+	}
+
+	return false
+}
+
+func resolveRemoteHost(hostName string) string {
+
+	ips, err := net.LookupIP("google.com")
+	if err != nil {
+		klog.V(1).Infof("Could not get IPs: %v\n", err)
+		os.Exit(1)
+	}
+
+	for _, ip := range ips {
+		if ipv4 := ip.To4(); ipv4 != nil {
+			return ipv4.String()
+		}
+	}
+
+	return ""
+}
+
 var (
 	level klog.Level
 )
@@ -503,6 +530,7 @@ func main() {
 	srcPodName := flag.String("src", "", "src: source pod name")
 	dstPodName := flag.String("dst", "", "dest: destination pod name")
 	dstSvcName := flag.String("service", "", "service: destination service name")
+	dstremoteHost := flag.String("remotehost", "", "remoteHost: remote destination hostname or ipaddress")
 	dstPort := flag.String("dst-port", "80", "dst-port: destination port")
 	tcp := flag.Bool("tcp", false, "use tcp transport protocol")
 	udp := flag.Bool("udp", false, "use udp transport protocol")
@@ -538,7 +566,7 @@ func main() {
 		os.Exit(-1)
 	}
 	if *tcp {
-		if *dstSvcName == "" && *dstPodName == "" {
+		if *dstSvcName == "" && *dstPodName == "" && *dstremoteHost == "" {
 			fmt.Printf("Usage: destination pod or destination service must be specified for tcp\n")
 			klog.V(1).Infof("Usage: destination pod or destination service must be specified for tcp")
 			os.Exit(-1)
@@ -610,6 +638,8 @@ func main() {
 
 	masters := make(map[string]string)
 	workers := make(map[string]string)
+	var mastersAddress []string
+	var workersAddress []string
 
 	klog.V(5).Infof(" Nodes: ")
 	for _, node := range nodes.Items {
@@ -622,6 +652,7 @@ func main() {
 				//if s.Type == corev1client.NodeInternalIP {
 				if s.Type == "InternalIP" {
 					masters[node.Name] = s.Address
+					mastersAddress = append(mastersAddress, s.Address)
 				}
 			}
 		} else {
@@ -631,6 +662,7 @@ func main() {
 				//if s.Type == corev1client.NodeInternalIP {
 				if s.Type == "InternalIP" {
 					workers[node.Name] = s.Address
+					workersAddress = append(workersAddress, s.Address)
 				}
 			}
 		}
@@ -670,6 +702,59 @@ func main() {
 	klog.V(5).Infof("srcPodInfo is %v", srcPodInfo)
 
 	var dstSvcInfo *SvcInfo
+	// Get Destination IP if there is one
+	if *dstremoteHost != "" {
+		// ovn-trace from src pod to clusterIP of ther service
+
+		var fromSrc string
+		var dsthostIP string
+
+		dsthostIP = resolveRemoteHost(*dstremoteHost)
+		if dsthostIP == "" {
+			klog.V(1).Infof("HostName %s does not resolve to any IPs", *dstremoteHost)
+			os.Exit(-1)
+		}
+
+		if srcPodInfo.HostNetwork {
+			fromSrc = " 'inport==\"" + srcPodInfo.OVNName + "\""
+		} else {
+			fromSrc = " 'inport==\"" + srcNamespace + "_" + *srcPodName + "\""
+		}
+
+		fromSrc += " && eth.dst==" + srcPodInfo.StorMAC
+		fromSrc += " && eth.src==" + srcPodInfo.MAC
+		fromSrc += " && ip4.dst==" + dsthostIP
+		fromSrc += " && ip4.src==" + srcPodInfo.IP
+		fromSrc += " && ip.ttl==64"
+		fromSrc += " && " + protocol + ".dst==" + *dstPort + " && " + protocol + ".src==52888'"
+
+		fromSrcCmd := "ovn-trace " + sbcmd + " " + srcPodInfo.NodeName + " " + "--ct=new --ct=new" + fromSrc
+
+		klog.V(5).Infof("ovn-trace command from src to service cluserIP is %s", fromSrcCmd)
+		ovnSrcDstOut, ovnSrcDstErr, err := execInPod(coreclient, restconfig, ovnNamespace, srcPodInfo.OvnKubeContainerPodName, "ovnkube-node", fromSrcCmd, "")
+		if err != nil {
+			klog.V(1).Infof("Source to Destination ovn-trace error %v stdOut: %s\n stdErr: %s", err, ovnSrcDstOut, ovnSrcDstErr)
+			os.Exit(-1)
+		}
+		klog.V(2).Infof("Source to service clusterIP  ovn-trace Output: %s\n", ovnSrcDstOut)
+
+		successStringHostNetwork := "output to \"k8s-"
+
+		if strings.Contains(ovnSrcDstOut, successStringHostNetwork) && (contains(mastersAddress, dstSvcInfo.PodIP) || contains(workersAddress, dstSvcInfo.PodIP)) {
+			// If Svc's backend is host netwoked it will only show paket leaving mp0
+			fmt.Printf("ovn-trace indicates success from %s to %s - matched on packet exiting mp0 destined for host network pod on node %s\n", *srcPodName, *dstSvcName, dstSvcInfo.PodIP)
+			klog.V(0).Infof("ovn-trace indicates success from %s to %s - matched on packet exiting mp0 destined for host network pod on node %s\n", *srcPodName, *dstSvcName, dstSvcInfo.PodIP)
+		} else {
+			fmt.Printf("ovn-trace indicates failure from %s to %s - %s not matched\n", *srcPodName, *dstSvcName, successStringHostNetwork)
+			klog.V(0).Infof("ovn-trace indicates failure from %s to %s - %s not matched\n", *srcPodName, *dstSvcName, successStringHostNetwork)
+			os.Exit(-1)
+		}
+
+		// set dst pod name, we'll use this to run through pod-pod tests as if use supplied this pod
+		*dstPodName = dstSvcInfo.PodName
+		fmt.Printf("using pod %s in service %s to test against\n", dstSvcInfo.PodName, *dstSvcName)
+		klog.V(1).Infof("Using pod %s in service %s to test against\n", dstSvcInfo.PodName, *dstSvcName)
+	}
 
 	// Get destination service if there is one
 	if *dstSvcName != "" {
@@ -690,6 +775,7 @@ func main() {
 		} else {
 			fromSrc = " 'inport==\"" + srcNamespace + "_" + *srcPodName + "\""
 		}
+
 		fromSrc += " && eth.dst==" + srcPodInfo.StorMAC
 		fromSrc += " && eth.src==" + srcPodInfo.MAC
 		fromSrc += fmt.Sprintf(" && %s.dst==%s", dstSvcInfo.getL3Ver(), dstSvcInfo.IP)
@@ -698,7 +784,7 @@ func main() {
 		fromSrc += " && " + protocol + ".dst==" + *dstPort + " && " + protocol + ".src==52888'"
 		fromSrc += " --lb-dst " + dstSvcInfo.PodIP + ":" + dstSvcInfo.PodPort
 
-		fromSrcCmd := "ovn-trace " + sbcmd + " " + srcPodInfo.NodeName + " " + "--ct=new " + fromSrc
+		fromSrcCmd := "ovn-trace " + sbcmd + " " + srcPodInfo.NodeName + " " + "--ct=new --ct=new" + fromSrc
 
 		klog.V(5).Infof("ovn-trace command from src to service cluserIP is %s", fromSrcCmd)
 		ovnSrcDstOut, ovnSrcDstErr, err := execInPod(coreclient, restconfig, ovnNamespace, srcPodInfo.OvnKubeContainerPodName, "ovnkube-node", fromSrcCmd, "")
@@ -709,9 +795,16 @@ func main() {
 		klog.V(2).Infof("Source to service clusterIP  ovn-trace Output: %s\n", ovnSrcDstOut)
 
 		successString := "output to \"" + dstSvcInfo.PodNamespace + "_" + dstSvcInfo.PodName + "\""
+
+		successStringHostNetwork := "output to \"k8s-"
+
 		if strings.Contains(ovnSrcDstOut, successString) {
 			fmt.Printf("ovn-trace indicates success from %s to %s - matched on %s\n", *srcPodName, *dstSvcName, successString)
 			klog.V(0).Infof("ovn-trace indicates success from %s to %s - matched on %s\n", *srcPodName, *dstSvcName, successString)
+		} else if strings.Contains(ovnSrcDstOut, successStringHostNetwork) && (contains(mastersAddress, dstSvcInfo.PodIP) || contains(workersAddress, dstSvcInfo.PodIP)) {
+			// If Svc's backend is host netwoked it will only show paket leaving mp0
+			fmt.Printf("ovn-trace indicates success from %s to %s - matched on packet exiting mp0 destined for host network pod on node %s\n", *srcPodName, *dstSvcName, dstSvcInfo.PodIP)
+			klog.V(0).Infof("ovn-trace indicates success from %s to %s - matched on packet exiting mp0 destined for host network pod on node %s\n", *srcPodName, *dstSvcName, dstSvcInfo.PodIP)
 		} else {
 			fmt.Printf("ovn-trace indicates failure from %s to %s - %s not matched\n", *srcPodName, *dstSvcName, successString)
 			klog.V(0).Infof("ovn-trace indicates failure from %s to %s - %s not matched\n", *srcPodName, *dstSvcName, successString)
@@ -753,14 +846,19 @@ func main() {
 	} else {
 		fromSrc = " 'inport==\"" + srcNamespace + "_" + *srcPodName + "\""
 	}
-	fromSrc += " && eth.dst==" + srcPodInfo.StorMAC
+
+	if srcPodInfo.NodeName == dstPodInfo.NodeName {
+		fromSrc += " && eth.dst==" + dstPodInfo.MAC
+	} else {
+		fromSrc += " && eth.dst==" + srcPodInfo.StorMAC
+	}
 	fromSrc += " && eth.src==" + srcPodInfo.MAC
 	fromSrc += fmt.Sprintf(" && %s.dst==%s", dstPodInfo.getL3Ver(), dstPodInfo.IP)
 	fromSrc += fmt.Sprintf(" && %s.src==%s", srcPodInfo.getL3Ver(), srcPodInfo.IP)
 	fromSrc += " && ip.ttl==64"
 	fromSrc += " && " + protocol + ".dst==" + *dstPort + " && " + protocol + ".src==52888'"
 
-	fromSrcCmd := "ovn-trace " + sbcmd + " " + srcPodInfo.NodeName + " " + fromSrc
+	fromSrcCmd := "ovn-trace " + sbcmd + " " + srcPodInfo.NodeName + " " + "--ct=new " + fromSrc
 
 	klog.V(5).Infof("ovn-trace command from src to dst is %s", fromSrcCmd)
 	ovnSrcDstOut, ovnSrcDstErr, err := execInPod(coreclient, restconfig, ovnNamespace, srcPodInfo.OvnKubeContainerPodName, "ovnkube-node", fromSrcCmd, "")
@@ -796,6 +894,14 @@ func main() {
 	} else {
 		fromDst = " 'inport==\"" + dstNamespace + "_" + *dstPodName + "\""
 	}
+
+	// If pod dosn
+	if srcPodInfo.NodeName == dstPodInfo.NodeName {
+		fromSrc += " && eth.dst==" + dstPodInfo.MAC
+	} else {
+		fromSrc += " && eth.dst==" + srcPodInfo.StorMAC
+	}
+
 	fromDst += " && eth.dst==" + dstPodInfo.StorMAC
 	fromDst += " && eth.src==" + dstPodInfo.MAC
 	fromDst += fmt.Sprintf(" && %s.dst==%s", srcPodInfo.getL3Ver(), srcPodInfo.IP)
