@@ -198,7 +198,7 @@ func gatewayInit(nodeName string, clusterIPSubnet []*net.IPNet, hostSubnets []*n
 			lbString := strings.Join([]string{gatewayProtoLBMap[kapi.ProtocolTCP], gatewayProtoLBMap[kapi.ProtocolUDP],
 				gatewayProtoLocalLBMap[kapi.ProtocolTCP], gatewayProtoLocalLBMap[kapi.ProtocolUDP]}, ",")
 			if sctpSupport {
-				lbString = lbString + "," + gatewayProtoLBMap[kapi.ProtocolSCTP] + "," + gatewayProtoLocalLBMap[kapi.ProtocolSCTP]
+				lbString = strings.Join([]string{lbString, gatewayProtoLBMap[kapi.ProtocolSCTP], gatewayProtoLocalLBMap[kapi.ProtocolSCTP]}, ",")
 			}
 			stdout, stderr, err = util.RunOVNNbctl("set", "logical_router", gatewayRouter, "load_balancer="+lbString)
 			if err != nil {
@@ -229,25 +229,13 @@ func gatewayInit(nodeName string, clusterIPSubnet []*net.IPNet, hostSubnets []*n
 	// Create load balancers for workers (to be applied to GR and node switch)
 	for _, proto := range enabledProtos {
 		if workerProtoLBMap[proto] == "" {
-			if config.Gateway.Mode != config.GatewayModeLocal {
-				workerProtoLBMap[proto], stderr, err = util.RunOVNNbctl("--", "create",
-					"load_balancer",
-					fmt.Sprintf("external_ids:%s-%s=%s", types.WorkerLBPrefix, strings.ToLower(string(proto)), nodeName),
-					fmt.Sprintf("protocol=%s", strings.ToLower(string(proto))),
-					fmt.Sprintf("options:lb_force_snat_ip=router_ip"))
-				if err != nil {
-					return fmt.Errorf("failed to create load balancer for worker node %s for protocol %s: "+
-						"stderr: %q, error: %v", nodeName, proto, stderr, err)
-				}
-			} else {
-				workerProtoLBMap[proto], stderr, err = util.RunOVNNbctl("--", "create",
-					"load_balancer",
-					fmt.Sprintf("external_ids:%s-%s=%s", types.WorkerLBPrefix, strings.ToLower(string(proto)), nodeName),
-					fmt.Sprintf("protocol=%s", strings.ToLower(string(proto))))
-				if err != nil {
-					return fmt.Errorf("failed to create load balancer for worker node %s for protocol %s: "+
-						"stderr: %q, error: %v", nodeName, proto, stderr, err)
-				}
+			workerProtoLBMap[proto], stderr, err = util.RunOVNNbctl("create",
+				"load_balancer",
+				fmt.Sprintf("external_ids:%s-%s=%s", types.WorkerLBPrefix, strings.ToLower(string(proto)), nodeName),
+				fmt.Sprintf("protocol=%s", strings.ToLower(string(proto))))
+			if err != nil {
+				return fmt.Errorf("failed to create load balancer for worker node %s for protocol %s: "+
+					"stderr: %q, error: %v", nodeName, proto, stderr, err)
 			}
 		}
 	}

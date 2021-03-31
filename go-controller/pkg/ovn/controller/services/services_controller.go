@@ -268,7 +268,6 @@ func (c *Controller) syncServices(key string) error {
 	// ,that has the reject option for backends without endpoints, to the idling loadbalancer, that
 	// generates a needPods event.
 	// if not, we delete the vips from the idling lb and move them to their right place.
-
 	vips := collectServiceVIPs(service)
 	if svcNeedsIdling(service.Annotations) && !util.HasValidEndpoint(service, endpointSlices) {
 		err = c.addServiceToIdlingBalancer(vips, service)
@@ -351,14 +350,14 @@ func (c *Controller) syncServices(key string) error {
 
 			// Node Port
 			if svcPort.NodePort != 0 {
-				// We need to have only local endpoints on GR here, so repass all endpoint slices so local ones can be found
+				// Ensure we only add correct eps to VIP per node
 				if err := createNodePortVIPs(service, utilnet.IsIPv6String(ip), svcPort.Protocol, svcPort.NodePort, eps); err != nil {
 					c.eventRecorder.Eventf(service, v1.EventTypeWarning, "FailedToUpdateOVNLoadBalancer",
 						"Error trying to update OVN LoadBalancer for Service %s/%s: %v",
 						name, namespace, err)
 					return err
 				}
-				// Reguardless of LB configuration Vphysical IPs willl be the same for both
+				// Reguardless of LB configuration physical IPs willl be the same for both
 				nodeIPs, err := getNodeIPs(utilnet.IsIPv6String(ip))
 				if err != nil {
 					return err

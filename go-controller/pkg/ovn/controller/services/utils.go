@@ -186,7 +186,6 @@ func createPerNodePhysicalVIPs(isIPv6 bool, protocol v1.Protocol, sourcePort int
 	}
 
 	for _, gatewayRouter := range gatewayRouters {
-
 		// Get normal per GWR load-balancers
 		gatewayLB, err := gateway.GetGatewayLoadBalancer(gatewayRouter, protocol)
 		if err != nil {
@@ -194,9 +193,8 @@ func createPerNodePhysicalVIPs(isIPv6 bool, protocol v1.Protocol, sourcePort int
 				gatewayRouter, err)
 			continue
 		}
-
+		// Get node-local per GWR load balancers only
 		if nodeLocal {
-			// Get node-local per GWR load balancers only
 			gatewayLB, err = gateway.GetGatewayLoadBalancer(fmt.Sprintf("%s_local", gatewayRouter), protocol)
 			if err != nil {
 				klog.Errorf("Gateway router %s does not have load balancer (%v)",
@@ -204,7 +202,6 @@ func createPerNodePhysicalVIPs(isIPv6 bool, protocol v1.Protocol, sourcePort int
 				continue
 			}
 		}
-
 		physicalIPs, err := gateway.GetGatewayPhysicalIPs(gatewayRouter)
 		if err != nil {
 			klog.Errorf("Gateway router %s does not have physical ip (%v)", gatewayRouter, err)
@@ -216,11 +213,10 @@ func createPerNodePhysicalVIPs(isIPv6 bool, protocol v1.Protocol, sourcePort int
 			klog.Errorf("Failed to find node physical IPs, for gateway: %s, error: %v", gatewayRouter, err)
 			return err
 		}
-
-		newEps := eps
+		// Get node-local endpoints only
 		if nodeLocal {
-			newEps = eps.LocalToNode(gatewayRouter)
-			targetIPs = newEps.IPs()
+			klog.V(5).Infof("ExternalTrafficPolicy=Local only getting local endpoints for node %s", util.GetWorkerFromGatewayRouter(gatewayRouter))
+			targetIPs = eps.LocalToNode(gatewayRouter).IPs()
 		}
 
 		newTargets := util.UpdateIPsSlice(targetIPs, physicalIPs, []string{types.V4HostMasqueradeIP, types.V6HostMasqueradeIP})
@@ -238,8 +234,7 @@ func createPerNodePhysicalVIPs(isIPv6 bool, protocol v1.Protocol, sourcePort int
 				klog.Errorf("Worker switch %s does not have load balancer (%v)", workerNode, err)
 				return err
 			}
-
-			// Always add all EPs here since internal traffic to each endpoint (local or not) should still work
+			// Always add all EPs(targetIPs) here since internal traffic to each endpoint (local or not) should still work  for internal traffic
 			err = loadbalancer.CreateLoadBalancerVIPs(workerLB, physicalIPs, sourcePort, targetIPs, targetPort)
 			if err != nil {
 				klog.Errorf("Failed to create VIP in load balancer %s - %v", workerLB, err)
