@@ -1,11 +1,13 @@
 package node
 
 import (
+	"net"
 	"os"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/config"
 	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/kube/healthcheck"
 	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/util"
 
@@ -87,6 +89,29 @@ func countLocalEndpoints(ep *kapi.Endpoints, nodeName string) int {
 			addr := &ss.Addresses[i]
 			if addr.NodeName != nil && *addr.NodeName == nodeName {
 				num++
+			}
+		}
+	}
+	return num
+}
+
+func countHostNeworkedEndpoints(ep *kapi.Endpoints, nodeName string) int {
+	num := 0
+	for i := range ep.Subsets {
+		ss := &ep.Subsets[i]
+		for i := range ss.Addresses {
+			addr := &ss.Addresses[i]
+			if addr.NodeName != nil && *addr.NodeName == nodeName {
+				for _, clusterNet := range config.Default.ClusterSubnets {
+					found := false
+					if clusterNet.CIDR.Contains(net.ParseIP(addr.IP)) {
+						found = true
+						break
+					}
+					if !found {
+						num++
+					}
+				}
 			}
 		}
 	}

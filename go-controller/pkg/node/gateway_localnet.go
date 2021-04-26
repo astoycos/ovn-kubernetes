@@ -337,7 +337,7 @@ func (l *localPortWatcher) SyncServices(serviceInterface []interface{}) {
 			klog.Errorf("Spurious object in syncServices: %v", serviceInterface)
 			continue
 		}
-		keepIPTRules = append(keepIPTRules, getGatewayIPTRules(svc, []string{l.gatewayIPv4, l.gatewayIPv6})...)
+		keepIPTRules = append(keepIPTRules, getGatewayIPTRules(svc, false, []string{l.gatewayIPv4, l.gatewayIPv6})...)
 		keepRoutes = append(keepRoutes, svc.Spec.ExternalIPs...)
 	}
 	for _, chain := range []string{iptableNodePortChain, iptableExternalIPChain} {

@@ -310,7 +310,7 @@ func recreateIPTRules(table, chain string, keepIPTRules []iptRule) {
 // only incoming traffic on that IP will be accepted for NodePort rules; otherwise incoming traffic on the NodePort
 // on all IPs will be accepted. If gatewayIP is "", then NodePort traffic will be DNAT'ed to the service port on
 // the service's ClusterIP. Otherwise, it will be DNAT'ed to the NodePort on the gatewayIP.
-func getGatewayIPTRules(service *kapi.Service, gatewayIPs []string) []iptRule {
+func getGatewayIPTRules(service *kapi.Service, dnatToPod bool, gatewayIPs []string) []iptRule {
 	rules := make([]iptRule, 0)
 	clusterIPs := util.GetClusterIPs(service)
 	for _, svcPort := range service.Spec.Ports {
@@ -330,8 +330,14 @@ func getGatewayIPTRules(service *kapi.Service, gatewayIPs []string) []iptRule {
 					rules = append(rules, getNodePortIPTRules(svcPort, clusterIP, svcPort.Port)...)
 				}
 			} else {
-				for _, gatewayIP := range gatewayIPs {
-					rules = append(rules, getNodePortIPTRules(svcPort, gatewayIP, svcPort.Port)...)
+				if dnatToPod {
+					for _, gatewayIP := range gatewayIPs {
+						rules = append(rules, getNodePortIPTRules(svcPort, gatewayIP, int32(svcPort.TargetPort.IntValue()))...)
+					}
+				} else {
+					for _, gatewayIP := range gatewayIPs {
+						rules = append(rules, getNodePortIPTRules(svcPort, gatewayIP, svcPort.Port)...)
+					}
 				}
 			}
 		}
