@@ -43,10 +43,12 @@ type SvcInfo struct {
 	PodNamespace string
 	PodIP        string
 	PodPort      string
+	PodNodeName  *string
 }
 
 type PodInfo struct {
 	IP                      string
+	NodeIP                  string
 	MAC                     string
 	VethName                string
 	PortNum                 string
@@ -197,6 +199,7 @@ func getSvcInfo(coreclient *corev1client.CoreV1Client, restconfig *rest.Config, 
 			svcInfo.PodName = epAddress.TargetRef.Name
 			svcInfo.PodNamespace = epAddress.TargetRef.Namespace
 			svcInfo.PodIP = epAddress.IP
+			svcInfo.PodNodeName = epAddress.NodeName
 			addrFound = true
 			break
 		}
@@ -700,16 +703,51 @@ func main() {
 			os.Exit(-1)
 		}
 
+		//Now get info needed for the dst Pod
+		dstPodInfo, err := getPodInfo(coreclient, restconfig, dstSvcInfo.PodName , ovnNamespace, dstNamespace, nbcmd)
+		if err != nil {
+			fmt.Printf("Failed to get information from pod %s: %v\n", *dstPodName, err)
+			klog.V(1).Infof("Failed to get information from pod %s: %v", *dstPodName, err)
+			os.Exit(-1)
+		}
+		klog.V(5).Infof("dstPodInfo is %v\n", dstPodInfo)
 		// ovn-trace from src pod to clusterIP of ther service
 
 		var fromSrc string
+		var dstMAC string 
+		// Account fo the fact that host endpoints have a nodName of nill
+		if dstSvcInfo.PodNodeName == nil { 
+			// See if src pod node is on same node as svc endpoint 
+			// when endpoint is a node IP
+			var SrcPodNodeIP string
+
+			if ip, exists := workers[srcPodInfo.NodeName]; exists {
+				SrcPodNodeIP = ip
+			} else { 
+				SrcPodNodeIP = masters[srcPodInfo.NodeName]
+			}	
+
+			if dstSvcInfo.IP == SrcPodNodeIP { 
+				dstMAC = dstPodInfo.MAC
+			} else { 
+				dstMAC = srcPodInfo.StorMAC
+			}
+
+		} else { 
+			if srcPodInfo.NodeName == *dstSvcInfo.PodNodeName { 
+				// Next Hop MAC is same as Src MAC since src + dst pods are on same node
+				dstMAC = dstPodInfo.MAC
+			} else { 
+				dstMAC = srcPodInfo.StorMAC
+			}
+		}
 
 		if srcPodInfo.HostNetwork {
 			fromSrc = " 'inport==\"" + srcPodInfo.OVNName + "\""
 		} else {
 			fromSrc = " 'inport==\"" + srcNamespace + "_" + *srcPodName + "\""
 		}
-		fromSrc += " && eth.dst==" + srcPodInfo.StorMAC
+		fromSrc += " && eth.dst==" + dstMAC
 		fromSrc += " && eth.src==" + srcPodInfo.MAC
 		fromSrc += fmt.Sprintf(" && %s.dst==%s", dstSvcInfo.getL3Ver(), dstSvcInfo.IP)
 		fromSrc += fmt.Sprintf(" && %s.src==%s", srcPodInfo.getL3Ver(), srcPodInfo.IP)
@@ -766,13 +804,25 @@ func main() {
 	// ovn-trace from src pod to dst pod
 
 	var fromSrc string
+	var dstOrigMAC string 
+	var dstReverMAC string
+
+	if srcPodInfo.NodeName == dstPodInfo.NodeName { 
+		// Next Hop MAC is same as Src MAC since src + dst pods are on same node
+		dstOrigMAC = srcPodInfo.MAC
+	    dstReverMAC = dstPodInfo.MAC
+
+	} else { 
+		dstOrigMAC = dstPodInfo.StorMAC
+		dstReverMAC = srcPodInfo.StorMAC
+	}
 
 	if srcPodInfo.HostNetwork {
 		fromSrc = " 'inport==\"" + srcPodInfo.OVNName + "\""
 	} else {
 		fromSrc = " 'inport==\"" + srcNamespace + "_" + *srcPodName + "\""
 	}
-	fromSrc += " && eth.dst==" + srcPodInfo.StorMAC
+	fromSrc += " && eth.dst==" + dstReverMAC
 	fromSrc += " && eth.src==" + srcPodInfo.MAC
 	fromSrc += fmt.Sprintf(" && %s.dst==%s", dstPodInfo.getL3Ver(), dstPodInfo.IP)
 	fromSrc += fmt.Sprintf(" && %s.src==%s", srcPodInfo.getL3Ver(), srcPodInfo.IP)
@@ -815,7 +865,7 @@ func main() {
 	} else {
 		fromDst = " 'inport==\"" + dstNamespace + "_" + *dstPodName + "\""
 	}
-	fromDst += " && eth.dst==" + dstPodInfo.StorMAC
+	fromDst += " && eth.dst==" + dstOrigMAC
 	fromDst += " && eth.src==" + dstPodInfo.MAC
 	fromDst += fmt.Sprintf(" && %s.dst==%s", srcPodInfo.getL3Ver(), srcPodInfo.IP)
 	fromDst += fmt.Sprintf(" && %s.src==%s", dstPodInfo.getL3Ver(), dstPodInfo.IP)
