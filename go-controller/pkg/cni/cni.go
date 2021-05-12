@@ -156,7 +156,7 @@ func (pr *PodRequest) cmdCheck(podLister corev1listers.PodLister) ([]byte, error
 			return nil, err
 		}
 		for _, ip := range result.IPs {
-			if err = waitForPodFlows(pr.ctx, result.Interfaces[*ip.Interface].Mac, []*net.IPNet{&ip.Address}, hostIfaceName, ifaceID, ofPort); err != nil {
+			if err = waitForPodInterface(pr.ctx, result.Interfaces[*ip.Interface].Mac, []*net.IPNet{&ip.Address}, hostIfaceName, ifaceID, ofPort, false); err != nil {
 				return nil, fmt.Errorf("error while checkoing on flows for pod: %s ip: %v, error: %v", ifaceID, ip, err)
 			}
 		}
