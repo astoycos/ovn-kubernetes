@@ -63,18 +63,15 @@ func newLocalGateway(nodeName string, hostSubnets []*net.IPNet, gwNextHops []net
 	patchPort := "patch-" + bridgeName + "_" + nodeName + "-to-br-int"
 
 	if config.Gateway.NodeportEnable {
-		localAddrSet, err := getLocalAddrs()
-		if err != nil {
-			return nil, err
-		}
-
 		if err := initLocalGatewayIPTables(); err != nil {
 			return nil, err
 		}
 		if err := initRoutingRules(); err != nil {
 			return nil, err
 		}
-		gw.localPortWatcher = newLocalPortWatcher(gatewayIfAddrs, recorder, localAddrSet)
+		gw.localPortWatcher = newLocalPortWatcher(gatewayIfAddrs, recorder)
+		gw.localPortWatcher.SetLocalAddrs()
+	
 	}
 
 	gw.readyFunc = func() (bool, error) {
@@ -110,13 +107,13 @@ type localPortWatcher struct {
 	localAddrSet map[string]net.IPNet
 }
 
-func newLocalPortWatcher(gatewayIfAddrs []*net.IPNet, recorder record.EventRecorder, localAddrSet map[string]net.IPNet) *localPortWatcher {
+func newLocalPortWatcher(gatewayIfAddrs []*net.IPNet, recorder record.EventRecorder) *localPortWatcher {
 	gatewayIPv4, gatewayIPv6 := getGatewayFamilyAddrs(gatewayIfAddrs)
 	return &localPortWatcher{
 		recorder:     recorder,
 		gatewayIPv4:  gatewayIPv4,
 		gatewayIPv6:  gatewayIPv6,
-		localAddrSet: localAddrSet,
+		localAddrSet: make(map[string]net.IPNet),
 	}
 }
 
@@ -155,21 +152,14 @@ func (l *localPortWatcher) DeleteService(svc *kapi.Service) {
 	}
 }
 
-func getLocalAddrs() (map[string]net.IPNet, error) {
-	localAddrSet := make(map[string]net.IPNet)
-	addrs, err := net.InterfaceAddrs()
+func  (l *localPortWatcher) SetLocalAddrs() {
+	localAddrSet,err := util.GetLocalAddrs()
 	if err != nil {
-		return nil, err
+		klog.Errorf("Error in getting interface addresses: %v", err)
 	}
-	for _, addr := range addrs {
-		ip, ipNet, err := net.ParseCIDR(addr.String())
-		if err != nil {
-			return nil, err
-		}
-		localAddrSet[ip.String()] = *ipNet
-	}
-	klog.V(5).Infof("Node local addresses initialized to: %v", localAddrSet)
-	return localAddrSet, nil
+
+	klog.V(5).Infof("Node local addresses updated to: %v", localAddrSet)
+	l.localAddrSet = localAddrSet
 }
 
 func (l *localPortWatcher) networkHasAddress(ip net.IP) bool {

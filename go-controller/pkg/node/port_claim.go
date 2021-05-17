@@ -124,7 +124,7 @@ type portClaimWatcher struct {
 }
 
 func newPortClaimWatcher(recorder record.EventRecorder) (*portClaimWatcher, error) {
-	localAddrSet, err := getLocalAddrs()
+	localAddrSet, err := util.GetLocalAddrs()
 	if err != nil {
 		return nil, err
 	}

@@ -222,7 +222,9 @@ func (n *OvnNode) initGateway(subnets []*net.IPNet, nodeAnnotator kube.Annotator
 	// then the interface will still hold the type of the value being set.
 
 	if config.Gateway.Mode == config.GatewayModeShared {
-		gw.nodeIPManager = newAddressManager(nodeAnnotator, managementPortConfig)
+		gw.nodeIPManager = newAddressManager(nodeAnnotator, managementPortConfig, nil)
+	} else {
+		gw.nodeIPManager = newAddressManager(nodeAnnotator, managementPortConfig, gw.localPortWatcher.(*localPortWatcher))
 	}
 
 	if loadBalancerHealthChecker != nil {

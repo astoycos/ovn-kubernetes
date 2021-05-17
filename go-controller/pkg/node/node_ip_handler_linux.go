@@ -19,15 +19,17 @@ type addressManager struct {
 	addresses      sets.String
 	nodeAnnotator  kube.Annotator
 	mgmtPortConfig *managementPortConfig
+	localPortWatcher *localPortWatcher
 	sync.Mutex
 }
 
 // initializes a new address manager which will hold all the IPs on a node
-func newAddressManager(nodeAnnotator kube.Annotator, config *managementPortConfig) *addressManager {
+func newAddressManager(nodeAnnotator kube.Annotator, config *managementPortConfig, lpw *localPortWatcher) *addressManager {
 	mgr := &addressManager{
-		addresses:      sets.NewString(),
-		nodeAnnotator:  nodeAnnotator,
-		mgmtPortConfig: config,
+		addresses:        sets.NewString(),
+		nodeAnnotator:    nodeAnnotator,
+		localPortWatcher: lpw,
+		mgmtPortConfig:   config,
 	}
 	mgr.sync()
 	return mgr
@@ -81,12 +83,20 @@ func (c *addressManager) Run(stopChan <-chan struct{}) {
 							klog.Errorf("Failed to set node annotations: %v", err)
 							continue
 						}
+						// Update LGW in mem node addresses
+						if c.localPortWatcher != nil { 
+							c.localPortWatcher.SetLocalAddrs()
+						}
 					}
 				} else {
 					if c.delAddr(a.LinkAddress.IP) {
 						if err := util.SetNodeHostAddresses(c.nodeAnnotator, c.addresses); err != nil {
 							klog.Errorf("Failed to set node annotations: %v", err)
 							continue
+						}
+						// Update LGW in mem node addresses
+						if c.localPortWatcher != nil { 
+							c.localPortWatcher.SetLocalAddrs()
 						}
 					}
 				}
