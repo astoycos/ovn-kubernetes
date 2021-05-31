@@ -465,9 +465,9 @@ var _ = ginkgo.Describe("e2e control plane", func() {
 // Test pod connectivity to other host IP addresses
 var _ = ginkgo.Describe("test e2e pod connectivity to host addresses", func() {
 	const (
-		ovnWorkerNode    string = "ovn-worker"
-		targetIP         string = "123.123.123.123"
-		svcname          string = "node-e2e-to-host"
+		ovnWorkerNode string = "ovn-worker"
+		targetIP      string = "123.123.123.123"
+		svcname       string = "node-e2e-to-host"
 	)
 
 	f := framework.NewDefaultFramework(svcname)
@@ -2220,7 +2220,7 @@ var _ = ginkgo.Describe("e2e br-int NetFlow export validation", func() {
 
 		// `kubectl set env` causes rollout of ovnkube-node pod, so wait for all of the ovnkube-node Pods
 		// to be ready
-		err = e2epod.WaitForPodsReady(f.ClientSet, ovnNs, "ovnkube-node", 0)
+		err = e2epod.WaitForPodsReady(f.ClientSet, ovnNs, "ovnkube-node", 60)
 		if err != nil {
 			framework.Failf("ovnkube-node pods are not ready: %v", err)
 		}
