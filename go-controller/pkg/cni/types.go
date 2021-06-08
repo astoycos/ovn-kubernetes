@@ -3,7 +3,6 @@ package cni
 import (
 	"context"
 	"net/http"
-	"sync"
 	"time"
 
 	"github.com/containernetworking/cni/pkg/types/current"
@@ -23,9 +22,10 @@ const serverSocketPath string = serverRunDir + "/" + serverSocketName
 type PodInterfaceInfo struct {
 	util.PodAnnotation
 
-	MTU     int   `json:"mtu"`
-	Ingress int64 `json:"ingress"`
-	Egress  int64 `json:"egress"`
+	MTU         int   `json:"mtu"`
+	Ingress     int64 `json:"ingress"`
+	CheckExtIDs bool  `json:"check-external-ids"`
+	Egress      int64 `json:"egress"`
 }
 
 // Explicit type for CNI commands the server handles
@@ -73,6 +73,8 @@ type PodRequest struct {
 	PodNamespace string
 	// kubernetes pod name
 	PodName string
+	// kubernetes pod UID
+	PodUID string
 	// kubernetes container ID
 	SandboxID string
 	// kernel network namespace path
@@ -87,9 +89,12 @@ type PodRequest struct {
 	ctx context.Context
 	// cancel should be called to cancel this request
 	cancel context.CancelFunc
+
+	podLister corev1listers.PodLister
+	kclient   kubernetes.Interface
 }
 
-type cniRequestFunc func(request *PodRequest, podLister corev1listers.PodLister, useOVSExternalIDs bool, kclient kubernetes.Interface) ([]byte, error)
+type cniRequestFunc func(request *PodRequest, podLister corev1listers.PodLister, kclient kubernetes.Interface) ([]byte, error)
 
 // Server object that listens for JSON-marshaled Request objects
 // on a private root-only Unix domain socket.
@@ -100,8 +105,4 @@ type Server struct {
 	useOVSExternalIDs int32
 	podLister         corev1listers.PodLister
 	kclient           kubernetes.Interface
-
-	// runningSandboxAdds is a map of sandbox ID to PodRequest for any CNIAdd operation
-	runningSandboxAddsLock sync.Mutex
-	runningSandboxAdds     map[string]*PodRequest
 }

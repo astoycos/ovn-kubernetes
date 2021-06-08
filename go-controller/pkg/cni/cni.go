@@ -77,7 +77,7 @@ func (pr *PodRequest) String() string {
 	return fmt.Sprintf("[%s/%s %s]", pr.PodNamespace, pr.PodName, pr.SandboxID)
 }
 
-func (pr *PodRequest) cmdAdd(podLister corev1listers.PodLister, useOVSExternalIDs bool, kclient kubernetes.Interface) ([]byte, error) {
+func (pr *PodRequest) cmdAdd(podLister corev1listers.PodLister, kclient kubernetes.Interface) ([]byte, error) {
 	namespace := pr.PodNamespace
 	podName := pr.PodName
 	if namespace == "" || podName == "" {
@@ -87,11 +87,11 @@ func (pr *PodRequest) cmdAdd(podLister corev1listers.PodLister, useOVSExternalID
 	annotCondFn := isOvnReady
 
 	// Get the IP address and MAC address of the pod
-	// for Smart-Nic, ensure connection-details is present
-	annotations, err := GetPodAnnotations(pr.ctx, podLister, kclient, namespace, podName, annotCondFn)
+	podUID, annotations, err := GetPodAnnotations(pr.ctx, podLister, kclient, namespace, podName, annotCondFn)
 	if err != nil {
 		return nil, err
 	}
+	pr.PodUID = podUID
 
 	podInterfaceInfo, err := PodAnnotation2PodInfo(annotations)
 	if err != nil {
@@ -100,7 +100,7 @@ func (pr *PodRequest) cmdAdd(podLister corev1listers.PodLister, useOVSExternalID
 
 	response := &Response{}
 	if !config.UnprivilegedMode {
-		response.Result, err = pr.getCNIResult(podInterfaceInfo)
+		response.Result, err = pr.getCNIResult(podLister, kclient, podInterfaceInfo)
 		if err != nil {
 			return nil, err
 		}
@@ -123,7 +123,7 @@ func (pr *PodRequest) cmdDel() ([]byte, error) {
 	return []byte{}, nil
 }
 
-func (pr *PodRequest) cmdCheck(podLister corev1listers.PodLister, useOVSExternalIDs bool, kclient kubernetes.Interface) ([]byte, error) {
+func (pr *PodRequest) cmdCheck(podLister corev1listers.PodLister, kclient kubernetes.Interface) ([]byte, error) {
 	namespace := pr.PodNamespace
 	podName := pr.PodName
 	if namespace == "" || podName == "" {
@@ -132,10 +132,11 @@ func (pr *PodRequest) cmdCheck(podLister corev1listers.PodLister, useOVSExternal
 
 	annotCondFn := isOvnReady
 
-	annotations, err := GetPodAnnotations(pr.ctx, podLister, kclient, pr.PodNamespace, pr.PodName, annotCondFn)
+	podUID, annotations, err := GetPodAnnotations(pr.ctx, podLister, kclient, pr.PodNamespace, pr.PodName, annotCondFn)
 	if err != nil {
 		return nil, err
 	}
+	pr.PodUID = podUID
 
 	if pr.CNIConf.PrevResult != nil {
 		result, err := current.NewResultFromResult(pr.CNIConf.PrevResult)
@@ -158,8 +159,10 @@ func (pr *PodRequest) cmdCheck(podLister corev1listers.PodLister, useOVSExternal
 			return nil, err
 		}
 		for _, ip := range result.IPs {
-			if err = waitForPodFlows(pr.ctx, result.Interfaces[*ip.Interface].Mac, []*net.IPNet{&ip.Address}, hostIfaceName, ifaceID, ofPort); err != nil {
-				return nil, fmt.Errorf("error while checkoing on flows for pod: %s ip: %v, error: %v", ifaceID, ip, err)
+			if err = waitForPodInterface(pr.ctx, result.Interfaces[*ip.Interface].Mac, []*net.IPNet{&ip.Address},
+				hostIfaceName, ifaceID, ofPort, podLister, kclient, pr.PodNamespace, pr.PodName,
+				pr.PodUID); err != nil {
+				return nil, fmt.Errorf("error while waiting on OVN pod interface: %s ip: %v, error: %v", ifaceID, ip, err)
 			}
 		}
 
@@ -188,18 +191,18 @@ func (pr *PodRequest) cmdCheck(podLister corev1listers.PodLister, useOVSExternal
 // Argument '*PodRequest' encapsulates all the necessary information
 // kclient is passed in so that clientset can be reused from the server
 // Return value is the actual bytes to be sent back without further processing.
-func HandleCNIRequest(request *PodRequest, podLister corev1listers.PodLister, useOVSExternalIDs bool, kclient kubernetes.Interface) ([]byte, error) {
+func HandleCNIRequest(request *PodRequest, podLister corev1listers.PodLister, kclient kubernetes.Interface) ([]byte, error) {
 	var result []byte
 	var err error
 
 	klog.Infof("%s %s starting CNI request %+v", request, request.Command, request)
 	switch request.Command {
 	case CNIAdd:
-		result, err = request.cmdAdd(podLister, useOVSExternalIDs, kclient)
+		result, err = request.cmdAdd(podLister, kclient)
 	case CNIDel:
 		result, err = request.cmdDel()
 	case CNICheck:
-		result, err = request.cmdCheck(podLister, useOVSExternalIDs, kclient)
+		result, err = request.cmdCheck(podLister, kclient)
 	default:
 	}
 	klog.Infof("%s %s finished CNI request %+v, result %q, err %v", request, request.Command, request, string(result), err)
@@ -212,8 +215,8 @@ func HandleCNIRequest(request *PodRequest, podLister corev1listers.PodLister, us
 }
 
 // getCNIResult get result from pod interface info.
-func (pr *PodRequest) getCNIResult(podInterfaceInfo *PodInterfaceInfo) (*current.Result, error) {
-	interfacesArray, err := pr.ConfigureInterface(pr.PodNamespace, pr.PodName, podInterfaceInfo)
+func (pr *PodRequest) getCNIResult(podLister corev1listers.PodLister, kclient kubernetes.Interface, podInterfaceInfo *PodInterfaceInfo) (*current.Result, error) {
+	interfacesArray, err := pr.ConfigureInterface(podLister, kclient, podInterfaceInfo)
 	if err != nil {
 		pr.deletePorts()
 		return nil, fmt.Errorf("failed to configure pod interface: %v", err)
