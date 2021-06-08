@@ -156,12 +156,29 @@ func isOVNControllerReady(name string) (bool, error) {
 	return true, nil
 }
 
+// Starting with v21.03.0 OVN sets OVS.Interface.external-id:ovn-installed
+// and OVNSB.Port_Binding.up when all OVS flows associated to a
+// logical port have been successfully programmed.
+func getOVNIfUpCheckMode() (bool, error) {
+	if _, stderr, err := util.RunOVNSbctl("--columns=up", "list", "Port_Binding"); err != nil {
+		if strings.Contains(stderr, "does not contain a column") {
+			klog.Infof("Falling back to using legacy CNI OVS flow readiness checks")
+			return false, nil
+		}
+		return false, fmt.Errorf("failed to check if port_binding is supported in OVN, stderr: %q, error: %v",
+			stderr, err)
+	}
+	klog.Infof("Detected support for port binding with external IDs")
+	return true, nil
+}
+
 // Start learns the subnets assigned to it by the master controller
 // and calls the SetupNode script which establishes the logical switch
 func (n *OvnNode) Start(wg *sync.WaitGroup) error {
 	var err error
 	var node *kapi.Node
 	var subnets []*net.IPNet
+	var isOvnUpEnabled bool
 
 	// Setting debug log level during node bring up to expose bring up process.
 	// Log level is returned to configured value when bring up is complete.
@@ -273,7 +290,17 @@ func (n *OvnNode) Start(wg *sync.WaitGroup) error {
 
 	n.WatchEndpoints()
 
-	cniServer := cni.NewCNIServer("", n.watchFactory)
+	isOvnUpEnabled, err = getOVNIfUpCheckMode()
+	if err != nil {
+		return err
+	}
+
+	kclient, ok := n.Kube.(*kube.Kube)
+	if !ok {
+		return fmt.Errorf("cannot get kubeclient for starting CNI server")
+	}
+
+	cniServer := cni.NewCNIServer("", isOvnUpEnabled, n.watchFactory, kclient.KClient)
 	err = cniServer.Start(cni.HandleCNIRequest)
 
 	return err
