@@ -7,10 +7,12 @@ import (
 	"io/ioutil"
 	"net/http"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/gorilla/mux"
 	kapi "k8s.io/api/core/v1"
+	"k8s.io/client-go/kubernetes"
 	corev1listers "k8s.io/client-go/listers/core/v1"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/klog/v2"
@@ -46,18 +48,26 @@ import (
 // started.
 
 // NewCNIServer creates and returns a new Server object which will listen on a socket in the given path
-func NewCNIServer(rundir string, factory factory.NodeWatchFactory) *Server {
+func NewCNIServer(rundir string, useOVSExternalIDs bool, factory factory.NodeWatchFactory, kclient kubernetes.Interface) *Server {
 	if len(rundir) == 0 {
 		rundir = serverRunDir
 	}
 	router := mux.NewRouter()
+
+	// we use atomic lib to store port binding mode state, so use int32 to represent bool
+	var ovnPortBinding int32
+	if useOVSExternalIDs {
+		ovnPortBinding = 1
+	}
 
 	s := &Server{
 		Server: http.Server{
 			Handler: router,
 		},
 		rundir:             rundir,
+		useOVSExternalIDs:  ovnPortBinding,
 		podLister:          corev1listers.NewPodLister(factory.LocalPodInformer().GetIndexer()),
+		kclient:            kclient,
 		runningSandboxAdds: make(map[string]*PodRequest),
 	}
 	router.NotFoundHandler = http.HandlerFunc(http.NotFound)
@@ -228,7 +238,12 @@ func (s *Server) handleCNIRequest(r *http.Request) ([]byte, error) {
 	}
 	defer s.finishSandboxRequest(req)
 
-	result, err := s.requestFunc(req, s.podLister)
+	useOVSExternalIDs := false
+	if atomic.LoadInt32(&s.useOVSExternalIDs) > 0 {
+		useOVSExternalIDs = true
+	}
+
+	result, err := s.requestFunc(req, s.podLister, useOVSExternalIDs, s.kclient)
 	if err != nil {
 		// Prefix error with request information for easier debugging
 		return nil, fmt.Errorf("%s %v", req, err)
