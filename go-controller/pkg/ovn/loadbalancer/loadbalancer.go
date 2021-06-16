@@ -80,8 +80,9 @@ func createLoadBalancer(protocol kapi.Protocol, idkey string) (string, error) {
 	if idkey == types.ClusterIdlingLBPrefix {
 		reject = false
 	}
-	options := fmt.Sprintf("options:reject=%t", reject)
-	lbID, stderr, err := util.RunOVNNbctl("create", "load_balancer", id, proto, options)
+	optionsReject := fmt.Sprintf("options:reject=%t", reject)
+	optionsHairpin := fmt.Sprintf("options:hairpin_snat_ip=%s %s", types.V4LBHairpinMasquradeIP, types.V6LBHairpinMasquradeIP)
+	lbID, stderr, err := util.RunOVNNbctl("create", "load_balancer", id, proto, optionsReject, optionsHairpin)
 	if err != nil {
 		klog.Errorf("Failed to create %s load balancer, stderr: %q, error: %v", protocol, stderr, err)
 		return "", err

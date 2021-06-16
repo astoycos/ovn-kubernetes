@@ -159,7 +159,8 @@ func gatewayInit(nodeName string, clusterIPSubnet []*net.IPNet, hostSubnets []*n
 				gatewayProtoLBMap[proto], stderr, err = util.RunOVNNbctl("--", "create",
 					"load_balancer",
 					fmt.Sprintf("external_ids:%s_lb_gateway_router=%s", proto, gatewayRouter),
-					fmt.Sprintf("protocol=%s", strings.ToLower(string(proto))))
+					fmt.Sprintf("protocol=%s", strings.ToLower(string(proto))),
+					fmt.Sprintf("options:hairpin_snat_ip=%s %s", types.V4LBHairpinMasquradeIP, types.V6LBHairpinMasquradeIP))
 				if err != nil {
 					return fmt.Errorf("failed to create load balancer for gateway router %s for protocol %s: "+
 						"stderr: %q, error: %v", gatewayRouter, proto, stderr, err)
@@ -206,7 +207,8 @@ func gatewayInit(nodeName string, clusterIPSubnet []*net.IPNet, hostSubnets []*n
 			workerProtoLBMap[proto], stderr, err = util.RunOVNNbctl("--", "create",
 				"load_balancer",
 				fmt.Sprintf("external_ids:%s-%s=%s", types.WorkerLBPrefix, strings.ToLower(string(proto)), nodeName),
-				fmt.Sprintf("protocol=%s", strings.ToLower(string(proto))))
+				fmt.Sprintf("protocol=%s", strings.ToLower(string(proto))),
+				fmt.Sprintf("options:hairpin_snat_ip=%s %s", types.V4LBHairpinMasquradeIP, types.V6LBHairpinMasquradeIP))
 			if err != nil {
 				return fmt.Errorf("failed to create load balancer for worker node %s for protocol %s: "+
 					"stderr: %q, error: %v", nodeName, proto, stderr, err)
