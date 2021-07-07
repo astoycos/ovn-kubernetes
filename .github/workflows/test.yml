@@ -154,6 +154,10 @@ jobs:
       OVN_GATEWAY_MODE: "${{ matrix.gateway-mode }}"
       OVN_MULTICAST_ENABLE:  "false"
     steps:
+
+    - name: Free up disk space
+      run: sudo eatmydata apt-get remove --auto-remove -y aspnetcore-* dotnet-* libmono-* mono-* msbuild php-* php7* ghc-* zulu-*
+
     - name: Set up Go
       uses: actions/setup-go@v1
       with:
@@ -165,19 +169,16 @@ jobs:
         export GOPATH=$(go env GOPATH)
         echo "GOPATH=$GOPATH" >> $GITHUB_ENV
         echo "$GOPATH/bin" >> $GITHUB_PATH
-
-    - name: Free up disk space
-      run: sudo eatmydata apt-get remove --auto-remove -y aspnetcore-* dotnet-* libmono-* mono-* msbuild php-* php7* ghc-* zulu-*
-
-    - uses: actions/download-artifact@v2
-      with:
-        name: test-image-master
-
+    
     - name: Disable ufw
       # For IPv6 and Dualstack, ufw (Uncomplicated Firewall) should be disabled.
       # Not needed for KIND deployments, so just disable all the time.
       run: |
         sudo ufw disable
+
+    - uses: actions/download-artifact@v2
+      with:
+        name: test-image-master
 
     - name: Load docker image
       run: |
@@ -225,7 +226,32 @@ jobs:
     - name: Run Single-Stack Tests
       run: |
         make -C test shard-test WHAT="Networking Granular Checks"
+    
+    - name: Run Single-Stack Non-HA Control Plane Tests
+      run: |
+        make -C test control-plane
+   
+    - name: Upload Junit Reports
+      if: always()
+      uses: actions/upload-artifact@v2
+      with:
+        name: kind-junit-post-upgrade-tests-${{ github.run_id }}
+        path: './test/_artifacts/*.xml'
 
+    - name: Generate Test Report
+      id: xunit-viewer
+      if: always()
+      uses: AutoModality/action-xunit-viewer@v1
+      with:
+        results: ./test/_artifacts/
+
+    - name: Upload Test Report
+      if: always()
+      uses: actions/upload-artifact@v2
+      with:
+        name: test-report-post-upgrade-tests-${{ github.run_id }}
+        path: './test/_artifacts/index.html'
+        
     - name: Export logs
       if: always()
       run: |
