@@ -6,6 +6,7 @@ package cni
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -135,16 +136,25 @@ func (p *Plugin) postMetrics(startTime time.Time, cmd command, err error) {
 	})
 }
 
-func kubeClientsetFromConfig(conf *ovntypes.NetConf) (*kubernetes.Clientset, error) {
-	if conf.Kubeconfig == "" && conf.KubeAPIServer == "" {
+func kubeClientsetFromConfig(auth *KubeAPIAuth) (*kubernetes.Clientset, error) {
+	if auth.Kubeconfig == "" && auth.KubeAPIServer == "" {
 		return nil, nil
 	}
 
+	var caData []byte
+	var err error
+	if auth.KubeCAData != "" {
+		caData, err = base64.StdEncoding.DecodeString(auth.KubeCAData)
+		if err != nil {
+			return nil, fmt.Errorf("failed to decode Kube API CA data: %v", err)
+		}
+	}
+
 	return util.NewKubernetesClientset(&config.KubernetesConfig{
-		Kubeconfig: conf.Kubeconfig,
-		CACert:     conf.KubeCACert,
-		APIServer:  conf.KubeAPIServer,
-		Token:      conf.KubeAPIToken,
+		Kubeconfig: auth.Kubeconfig,
+		APIServer:  auth.KubeAPIServer,
+		Token:      auth.KubeAPIToken,
+		CAData:     caData,
 	})
 }
 
@@ -181,7 +191,7 @@ func (p *Plugin) CmdAdd(args *skel.CmdArgs) error {
 		return err
 	}
 
-	kclient, errK := kubeClientsetFromConfig(conf)
+	kclient, errK := kubeClientsetFromConfig(response.KubeAuth)
 	if errK != nil {
 		err = errK
 		return err
@@ -189,8 +199,10 @@ func (p *Plugin) CmdAdd(args *skel.CmdArgs) error {
 
 	var result *current.Result
 	if response.Result != nil {
+		// Return the full CNI result from ovnkube-node if it configured the pod interface
 		result = response.Result
 	} else {
+		// Use the IPAM details from ovnkube-node to configure the pod interface
 		pr, _ := cniRequestToPodRequest(req, nil, kclient)
 		result, err = pr.getCNIResult(nil, kclient, response.PodIFInfo)
 		if err != nil {

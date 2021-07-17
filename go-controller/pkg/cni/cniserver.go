@@ -2,6 +2,7 @@ package cni
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
@@ -65,7 +66,17 @@ func NewCNIServer(rundir string, useOVSExternalIDs bool, factory factory.NodeWat
 		useOVSExternalIDs: ovnPortBinding,
 		podLister:         corev1listers.NewPodLister(factory.LocalPodInformer().GetIndexer()),
 		kclient:           kclient,
+		kubeAuth: &KubeAPIAuth{
+			Kubeconfig:    config.Kubernetes.Kubeconfig,
+			KubeAPIServer: config.Kubernetes.APIServer,
+			KubeAPIToken:  config.Kubernetes.Token,
+		},
 	}
+
+	if len(config.Kubernetes.CAData) > 0 {
+		s.kubeAuth.KubeCAData = base64.StdEncoding.EncodeToString(config.Kubernetes.CAData)
+	}
+
 	router.NotFoundHandler = http.HandlerFunc(http.NotFound)
 	router.HandleFunc("/metrics", s.handleCNIMetrics).Methods("POST")
 	router.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -178,7 +189,7 @@ func (s *Server) handleCNIRequest(r *http.Request) ([]byte, error) {
 		return nil, err
 	}
 
-	result, err := s.requestFunc(req, s.podLister, s.kclient)
+	result, err := s.requestFunc(req, s.podLister, s.kclient, s.kubeAuth)
 	if err != nil {
 		// Prefix error with request information for easier debugging
 		return nil, fmt.Errorf("%s %v", req, err)

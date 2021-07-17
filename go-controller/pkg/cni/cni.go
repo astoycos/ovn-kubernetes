@@ -93,7 +93,7 @@ func (pr *PodRequest) checkOrUpdatePodUID(podUID string) error {
 	return nil
 }
 
-func (pr *PodRequest) cmdAdd(podLister corev1listers.PodLister, kclient kubernetes.Interface) ([]byte, error) {
+func (pr *PodRequest) cmdAdd(kubeAuth *KubeAPIAuth, podLister corev1listers.PodLister, kclient kubernetes.Interface) ([]byte, error) {
 	namespace := pr.PodNamespace
 	podName := pr.PodName
 	if namespace == "" || podName == "" {
@@ -116,7 +116,7 @@ func (pr *PodRequest) cmdAdd(podLister corev1listers.PodLister, kclient kubernet
 		return nil, err
 	}
 
-	response := &Response{}
+	response := &Response{KubeAuth: kubeAuth}
 	if !config.UnprivilegedMode {
 		response.Result, err = pr.getCNIResult(podLister, kclient, podInterfaceInfo)
 		if err != nil {
@@ -211,14 +211,14 @@ func (pr *PodRequest) cmdCheck(podLister corev1listers.PodLister, kclient kubern
 // Argument '*PodRequest' encapsulates all the necessary information
 // kclient is passed in so that clientset can be reused from the server
 // Return value is the actual bytes to be sent back without further processing.
-func HandleCNIRequest(request *PodRequest, podLister corev1listers.PodLister, kclient kubernetes.Interface) ([]byte, error) {
+func HandleCNIRequest(request *PodRequest, podLister corev1listers.PodLister, kclient kubernetes.Interface, kubeAuth *KubeAPIAuth) ([]byte, error) {
 	var result []byte
 	var err error
 
 	klog.Infof("%s %s starting CNI request %+v", request, request.Command, request)
 	switch request.Command {
 	case CNIAdd:
-		result, err = request.cmdAdd(podLister, kclient)
+		result, err = request.cmdAdd(kubeAuth, podLister, kclient)
 	case CNIDel:
 		result, err = request.cmdDel()
 	case CNICheck:
