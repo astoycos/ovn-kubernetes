@@ -302,8 +302,16 @@ func (npw *nodePortWatcher) getServiceInfo(index ktypes.NamespacedName) (out *se
 	return out, exists
 }
 
-// setServiceInfo sets the serviceConfig, if it already exists do nothing
-func (npw *nodePortWatcher) setServiceInfo(index ktypes.NamespacedName, service *kapi.Service, etpHostRules bool) (exists bool) {
+// setServiceInfo creates and sets the serviceConfig
+func (npw *nodePortWatcher) setServiceInfo(index ktypes.NamespacedName, service *kapi.Service, etpHostRules bool) {
+	npw.serviceInfoLock.Lock()
+	defer npw.serviceInfoLock.Unlock()
+
+	npw.serviceInfo[index] = &serviceConfig{service: service, etpHostRules: etpHostRules}
+}
+
+// setServiceInfo creates sets the serviceConfig, if it already exists do nothing
+func (npw *nodePortWatcher) AddOrSetServiceInfo(index ktypes.NamespacedName, service *kapi.Service, etpHostRules bool) (exists bool) {
 	npw.serviceInfoLock.Lock()
 	defer npw.serviceInfoLock.Unlock()
 
@@ -382,7 +390,7 @@ func (npw *nodePortWatcher) AddService(service *kapi.Service) {
 		return
 	}
 
-	if exists := npw.setServiceInfo(name, service, hasHostNetworkEndpoints(ep, &npw.nodeIPManager.addresses)); exists {
+	if exists := npw.AddOrSetServiceInfo(name, service, hasHostNetworkEndpoints(ep, &npw.nodeIPManager.addresses)); exists {
 		klog.V(5).Infof("Rules already configured for service %s in namespace %s", service.Name, service.Namespace)
 	} else {
 		npw.AddEndpoints(ep)
@@ -405,13 +413,20 @@ func (npw *nodePortWatcher) UpdateService(old, new *kapi.Service) {
 		return
 	}
 
-	// If endpoint event arrives while we're processing the DeepEquals,
+	// If endpoint ADD/Delete arrives while we're processing the DeepEquals,
 	// we could end up deleting and adding the wrong rules. Instead manually delete old
-	// rules, then the addService event will catch any endpoint updates we missed
-	// and properly fill the npw.serviceInfo
+	// rules, then fetch the current state of the endpoint and add them back
+	// normally
 	klog.V(5).Infof("Updating service from: %v to: %v", old, new)
 	npw.delServiceRules(old, oldHasHostEndpoints)
 
+	ep, err := npw.watchFactory.GetEndpoint(new.Namespace, new.Name)
+	if err != nil {
+		klog.V(5).Infof("Endpoint was deleted during update for service %s in namespace %s", new.Name, new.Namespace)
+		return
+	}
+
+	npw.AddEndpoints(ep)
 }
 
 func (npw *nodePortWatcher) DeleteService(service *kapi.Service) {
@@ -492,7 +507,7 @@ func (npw *nodePortWatcher) AddEndpoints(ep *kapi.Endpoints) {
 	etpHostRules := hasHostNetworkEndpoints(ep, &npw.nodeIPManager.addresses)
 	// If externalTrafficPolicy is local and service has host endpoints make special rules
 	npw.addServiceRules(svc, etpHostRules)
-	// set service info if it does not exist if it does
+	// set service info
 	npw.setServiceInfo(name, svc, etpHostRules)
 }
 
@@ -510,10 +525,11 @@ func (npw *nodePortWatcher) UpdateEndpoints(old *kapi.Endpoints, new *kapi.Endpo
 	if !reflect.DeepEqual(new.Subsets, old.Subsets) {
 		etpHostRulesNew := hasHostNetworkEndpoints(new, &npw.nodeIPManager.addresses)
 		if hasHostNetworkEndpoints(old, &npw.nodeIPManager.addresses) != etpHostRulesNew {
-			if svcConfig := npw.updateServiceInfo(name, nil, &etpHostRulesNew); svcConfig != nil {
-				npw.DeleteEndpoints(old)
-				npw.AddEndpoints(new)
-			}
+			// Update the eptHostRules value in svcConfig
+			npw.DeleteEndpoints(old)
+			npw.AddEndpoints(new)
+			npw.updateServiceInfo(name, nil, &etpHostRulesNew)
+
 		}
 	}
 
