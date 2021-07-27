@@ -59,7 +59,7 @@ func (l *loadBalancerHealthChecker) DeleteService(svc *kapi.Service) {
 
 func (l *loadBalancerHealthChecker) SyncServices(svcs []interface{}) {}
 
-func (l *loadBalancerHealthChecker) AddEndpoints(ep *kapi.Endpoints) {
+func (l *loadBalancerHealthChecker) AddEndpoints(ep *kapi.Endpoints, svc *kapi.Service) {
 	name := ktypes.NamespacedName{Namespace: ep.Namespace, Name: ep.Name}
 	if _, exists := l.services[name]; exists {
 		l.endpoints[name] = countLocalEndpoints(ep, l.nodeName)
@@ -76,7 +76,7 @@ func (l *loadBalancerHealthChecker) UpdateEndpoints(old, new *kapi.Endpoints) {
 
 }
 
-func (l *loadBalancerHealthChecker) DeleteEndpoints(ep *kapi.Endpoints) {
+func (l *loadBalancerHealthChecker) DeleteEndpoints(ep *kapi.Endpoints, svc *kapi.Service) {
 	name := ktypes.NamespacedName{Namespace: ep.Namespace, Name: ep.Name}
 	delete(l.endpoints, name)
 	_ = l.server.SyncEndpoints(l.endpoints)

@@ -103,12 +103,12 @@ func (g *gateway) SyncServices(objs []interface{}) {
 	}
 }
 
-func (g *gateway) AddEndpoints(ep *kapi.Endpoints) {
+func (g *gateway) AddEndpoints(ep *kapi.Endpoints, svc *kapi.Service) {
 	if g.loadBalancerHealthChecker != nil {
-		g.loadBalancerHealthChecker.AddEndpoints(ep)
+		g.loadBalancerHealthChecker.AddEndpoints(ep, nil)
 	}
 	if g.nodePortWatcher != nil {
-		g.nodePortWatcher.AddEndpoints(ep)
+		g.nodePortWatcher.AddEndpoints(ep, nil)
 	}
 }
 
@@ -121,12 +121,12 @@ func (g *gateway) UpdateEndpoints(old, new *kapi.Endpoints) {
 	}
 }
 
-func (g *gateway) DeleteEndpoints(ep *kapi.Endpoints) {
+func (g *gateway) DeleteEndpoints(ep *kapi.Endpoints, svc *kapi.Service) {
 	if g.loadBalancerHealthChecker != nil {
-		g.loadBalancerHealthChecker.DeleteEndpoints(ep)
+		g.loadBalancerHealthChecker.DeleteEndpoints(ep, nil)
 	}
 	if g.nodePortWatcher != nil {
-		g.nodePortWatcher.DeleteEndpoints(ep)
+		g.nodePortWatcher.DeleteEndpoints(ep, nil)
 	}
 }
 
@@ -154,7 +154,7 @@ func (g *gateway) Init(wf factory.NodeWatchFactory) error {
 	wf.AddEndpointsHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj interface{}) {
 			ep := obj.(*kapi.Endpoints)
-			g.AddEndpoints(ep)
+			g.AddEndpoints(ep, nil)
 		},
 		UpdateFunc: func(old, new interface{}) {
 			oldEp := old.(*kapi.Endpoints)
@@ -163,7 +163,7 @@ func (g *gateway) Init(wf factory.NodeWatchFactory) error {
 		},
 		DeleteFunc: func(obj interface{}) {
 			ep := obj.(*kapi.Endpoints)
-			g.DeleteEndpoints(ep)
+			g.DeleteEndpoints(ep, nil)
 		},
 	}, nil)
 	return nil

@@ -302,12 +302,14 @@ func (npw *nodePortWatcher) getServiceInfo(index ktypes.NamespacedName) (out *se
 	return out, exists
 }
 
-// setServiceInfo creates and sets the serviceConfig
-func (npw *nodePortWatcher) setServiceInfo(index ktypes.NamespacedName, service *kapi.Service, etpHostRules bool) {
+// setServiceInfo creates and sets the serviceConfig, returns if it existed and whatever was there
+func (npw *nodePortWatcher) getAndSetServiceInfo(index ktypes.NamespacedName, service *kapi.Service, etpHostRules bool) (old *serviceConfig, exists bool) {
 	npw.serviceInfoLock.Lock()
 	defer npw.serviceInfoLock.Unlock()
 
+	old, exists = npw.serviceInfo[index]
 	npw.serviceInfo[index] = &serviceConfig{service: service, etpHostRules: etpHostRules}
+	return old, exists
 }
 
 // addOrSetServiceInfo creates sets the serviceConfig, if it already exists do nothing
@@ -326,18 +328,15 @@ func (npw *nodePortWatcher) addOrSetServiceInfo(index ktypes.NamespacedName, ser
 
 // updateServiceInfo sets the serviceConfig for a service and returns the existing serviceConfig, if inputs are nil
 // do not update those fields, if it does not exist return nil.
-func (npw *nodePortWatcher) updateServiceInfo(index ktypes.NamespacedName, service *kapi.Service, etpHostRules *bool) (old *serviceConfig) {
-	var exists bool
+func (npw *nodePortWatcher) updateServiceInfo(index ktypes.NamespacedName, service *kapi.Service, etpHostRules *bool) (old *serviceConfig, exists bool) {
 
 	npw.serviceInfoLock.Lock()
 	defer npw.serviceInfoLock.Unlock()
 
-	if old, exists = npw.serviceInfo[index]; exists {
+	if old, exists = npw.serviceInfo[index]; !exists {
 		klog.V(5).Infof("No serviceConfig found for service %s in namespace %s", index.Name, index.Namespace)
-		return nil
+		return nil, exists
 	}
-
-	old = npw.serviceInfo[index]
 
 	if service != nil {
 		npw.serviceInfo[index].service = service
@@ -347,61 +346,53 @@ func (npw *nodePortWatcher) updateServiceInfo(index ktypes.NamespacedName, servi
 		npw.serviceInfo[index].etpHostRules = *etpHostRules
 	}
 
-	return old
+	return old, exists
 }
 
 // addServiceRules ensures the correct iptables rules and OpenFlow physical
 // flows are programmed for a given configuration
 func (npw *nodePortWatcher) addServiceRules(service *kapi.Service, hasHostNet bool) {
-	if hasHostNet && util.ServiceExternalTrafficPolicyLocal(service) {
-		npw.updateServiceFlowCache(service, true, hasHostNet)
-		npw.ofm.requestFlowSync()
-		addSharedGatewayIptRules(service, hasHostNet)
+	// If the SVC's externalTrafficPolicy=local with no host endpoints add no rules for a given node
+	if util.ServiceExternalTrafficPolicyLocal(service) {
+		klog.V(5).Infof("Adding no rules for %v", service)
+		if hasHostNet {
+			klog.V(5).Infof("Adding special rules for %v", service)
+			npw.updateServiceFlowCache(service, true, true)
+			npw.ofm.requestFlowSync()
+			addSharedGatewayIptRules(service, true)
+		}
 	} else {
-		npw.updateServiceFlowCache(service, true, hasHostNet)
+		klog.V(5).Infof("Adding normal rules for %v", service)
+		npw.updateServiceFlowCache(service, true, false)
 		npw.ofm.requestFlowSync()
-		addSharedGatewayIptRules(service, hasHostNet)
+		addSharedGatewayIptRules(service, false)
 	}
 }
 
-// delServiceRules ensures the correct iptables rules and OpenFlow physical
-// flows are deleted for a given previous configuration
-func (npw *nodePortWatcher) delServiceRules(service *kapi.Service, hasHostNet bool) {
-	if hasHostNet && util.ServiceExternalTrafficPolicyLocal(service) {
-		npw.updateServiceFlowCache(service, false, hasHostNet)
-		npw.ofm.requestFlowSync()
-		delSharedGatewayIptRules(service, hasHostNet)
-	} else {
-		npw.updateServiceFlowCache(service, false, hasHostNet)
-		npw.ofm.requestFlowSync()
-		delSharedGatewayIptRules(service, hasHostNet)
-	}
+// delServiceRules deletes all iptables rules and OpenFlow physical
+// flows for a service
+func (npw *nodePortWatcher) delServiceRules(service *kapi.Service) {
+	npw.updateServiceFlowCache(service, false, false)
+	npw.ofm.requestFlowSync()
+	// Always try and delete all rules here
+	delSharedGatewayIptRules(service, true)
+	delSharedGatewayIptRules(service, false)
 }
 
 // AddService handles configuring shared gateway bridge flows to steer External IP, Node Port, Ingress LB traffic into OVN
 func (npw *nodePortWatcher) AddService(service *kapi.Service) {
-	name := ktypes.NamespacedName{Namespace: service.Namespace, Name: service.Name}
 	// don't process headless service or services that doesn't have NodePorts or ExternalIPs
 	if !util.ServiceTypeHasClusterIP(service) || !util.IsClusterIPSet(service) {
 		return
 	}
 
-	ep, err := npw.watchFactory.GetEndpoint(service.Namespace, service.Name)
-	if err != nil {
-		klog.V(5).Infof("No endpoint found for service %s in namespace %s", service.Name, service.Namespace)
-		return
-	}
+	klog.V(5).Infof("Adding service %s in namespace %s rules for %s", service.Name, service.Namespace)
 
-	if exists := npw.addOrSetServiceInfo(name, service, hasHostNetworkEndpoints(ep, &npw.nodeIPManager.addresses)); exists {
-		klog.V(5).Infof("Rules already configured for service %s in namespace %s", service.Name, service.Namespace)
-	} else {
-		npw.AddEndpoints(ep)
-	}
+	npw.AddEndpoints(nil, service)
 }
 
 func (npw *nodePortWatcher) UpdateService(old, new *kapi.Service) {
 	name := ktypes.NamespacedName{Namespace: old.Namespace, Name: old.Name}
-	oldHasHostEndpoints := npw.updateServiceInfo(name, new, nil)
 
 	if reflect.DeepEqual(new.Spec.Ports, old.Spec.Ports) &&
 		reflect.DeepEqual(new.Spec.ExternalIPs, old.Spec.ExternalIPs) &&
@@ -414,44 +405,34 @@ func (npw *nodePortWatcher) UpdateService(old, new *kapi.Service) {
 		return
 	}
 
+	// Update the service in svcConfig if we need to so that other handler
+	// threads do the correct thing, leave etpHostRules alone
+	svcConfig, exists := npw.updateServiceInfo(name, new, nil)
+	if !exists {
+		klog.V(5).Infof("Service %s in namespace %s was deleted during service Update", old.Name, old.Namespace)
+		return
+	}
+
 	if util.ServiceTypeHasClusterIP(old) && util.IsClusterIPSet(old) {
-		// If endpoint ADD/Delete arrives while we're processing the DeepEquals,
-		// we could end up deleting the wrong rules. Instead manually delete old
-		// rules, then fetch the current state of the endpoint and add them back
-		// normally
-		klog.V(5).Infof("Updating service from: %v to: %v", old, new)
-		npw.delServiceRules(old, oldHasHostEndpoints.etpHostRules)
+		// Delete old rules if needed, but don't delete svcConfig
+		// so that we don't miss any endpoint update events here
+		klog.V(5).Infof("Deleting old service rules for: %v", old)
+		npw.delServiceRules(old)
 	}
 
 	if util.ServiceTypeHasClusterIP(new) && util.IsClusterIPSet(new) {
-		ep, err := npw.watchFactory.GetEndpoint(new.Namespace, new.Name)
-		if err != nil {
-			klog.V(5).Infof("Endpoint was deleted during update for service %s in namespace %s", new.Name, new.Namespace)
-			return
-		}
-
-		npw.AddEndpoints(ep)
+		klog.V(5).Infof("Adding new service rules for: %v", new)
+		npw.addServiceRules(new, svcConfig.etpHostRules)
 	}
 }
 
 func (npw *nodePortWatcher) DeleteService(service *kapi.Service) {
-	name := ktypes.NamespacedName{Namespace: service.Namespace, Name: service.Name}
 	// don't process headless service
 	if !util.ServiceTypeHasClusterIP(service) || !util.IsClusterIPSet(service) {
 		return
 	}
 
-	ep, err := npw.watchFactory.GetEndpoint(service.Namespace, service.Name)
-	if err != nil {
-		klog.V(5).Infof("No endpoint found for service %s in namespace %s", service.Name, service.Namespace)
-		return
-	}
-
-	if _, exists := npw.getServiceInfo(name); !exists {
-		klog.V(5).Infof("Rules already deleted for service %s in namespace %s", service.Name, service.Namespace)
-	} else {
-		npw.DeleteEndpoints(ep)
-	}
+	npw.DeleteEndpoints(nil, service)
 }
 
 func (npw *nodePortWatcher) SyncServices(services []interface{}) {
@@ -473,7 +454,7 @@ func (npw *nodePortWatcher) SyncServices(services []interface{}) {
 		}
 
 		hasHostNet := hasHostNetworkEndpoints(ep, &npw.nodeIPManager.addresses)
-		npw.setServiceInfo(name, service, hasHostNet)
+		npw.getAndSetServiceInfo(name, service, hasHostNet)
 		// Delete OF rules for service if they exist
 		npw.updateServiceFlowCache(service, false, hasHostNet)
 		npw.updateServiceFlowCache(service, true, hasHostNet)
@@ -488,33 +469,75 @@ func (npw *nodePortWatcher) SyncServices(services []interface{}) {
 	}
 }
 
-// Add new Local Traffic flows if endpoints are local
-func (npw *nodePortWatcher) AddEndpoints(ep *kapi.Endpoints) {
-	name := ktypes.NamespacedName{Namespace: ep.Namespace, Name: ep.Name}
+// Add correct traffic flows for a service's endpoints
+func (npw *nodePortWatcher) AddEndpoints(ep *kapi.Endpoints, svc *kapi.Service) {
+	var err error
+	var etpHostRules bool
 
-	svc, err := npw.watchFactory.GetService(ep.Namespace, ep.Name)
+	// This call was from the AddService function, only add flows if nothing else
+	// already did, then return
+	if svc != nil {
+		name := ktypes.NamespacedName{Namespace: svc.Namespace, Name: svc.Name}
+		// If something didn't already do it add correct Service rules
+		if exists := npw.addOrSetServiceInfo(name, svc, etpHostRules); !exists {
+			npw.addServiceRules(svc, etpHostRules)
+			return
+		} else {
+			klog.V(5).Infof("Flows already programmed for %s in namespace %s", svc.Name, svc.Namespace)
+			return
+		}
+	}
+
+	svc, err = npw.watchFactory.GetService(ep.Namespace, ep.Name)
 	if err != nil {
 		// This is not necessarily an error. For e.g when there are endpoints
 		// without a corresponding service.
 		klog.V(5).Infof("No service found for endpoint %s in namespace %s", ep.Name, ep.Namespace)
 		return
 	}
-	klog.V(5).Infof("Matching service %s found for ep: %s, with cluster IP: %s", svc.Name, ep.Name, svc.Spec.ClusterIP)
 
 	if !util.ServiceTypeHasClusterIP(svc) || !util.IsClusterIPSet(svc) {
 		return
 	}
 
-	etpHostRules := hasHostNetworkEndpoints(ep, &npw.nodeIPManager.addresses)
-	npw.addServiceRules(svc, etpHostRules)
-	npw.setServiceInfo(name, svc, etpHostRules)
+	etpHostRules = hasHostNetworkEndpoints(ep, &npw.nodeIPManager.addresses)
+
+	name := ktypes.NamespacedName{Namespace: ep.Namespace, Name: ep.Name}
+
+	// Here we make sure the correct rules are programmed whenever an AddEndpoint
+	// event is received, only alter flows if we need to, i.e if ServiceInfo wasn't
+	// set or if it was and etpHostRules changed to prevent flow churn
+	// Do a delete then Add to ensure we don't leave dangling rules
+	if out, exists := npw.getAndSetServiceInfo(name, svc, etpHostRules); !exists || out.etpHostRules != etpHostRules {
+		npw.delServiceRules(svc)
+		npw.addServiceRules(svc, etpHostRules)
+	}
+
 }
 
-func (npw *nodePortWatcher) DeleteEndpoints(ep *kapi.Endpoints) {
+func (npw *nodePortWatcher) DeleteEndpoints(ep *kapi.Endpoints, svc *kapi.Service) {
+	var etpHostRules = false
+
+	// If deleteEndpoint event was triggered by the deleteService Event delete everything
+	// and return
+	if svc != nil {
+		name := ktypes.NamespacedName{Namespace: svc.Namespace, Name: svc.Name}
+		if svcConfig, exists := npw.getAndDeleteServiceInfo(name); exists {
+			npw.delServiceRules(svcConfig.service)
+			return
+		} else {
+			// we shouldn't get here
+			klog.V(5).Infof("Deletion failed No service found for endpoint %s in namespace %s", svc.Name, svc.Namespace)
+			return
+		}
+	}
+
+	// Otherwise delete rules and add new normal ones since now
+	// the service has no endpoints so no special rules should be there
 	name := ktypes.NamespacedName{Namespace: ep.Namespace, Name: ep.Name}
-	// Always deletes rules for existing configuration
-	if svcConfig, exists := npw.getAndDeleteServiceInfo(name); exists {
-		npw.delServiceRules(svcConfig.service, svcConfig.etpHostRules)
+	if svcConfig, exists := npw.updateServiceInfo(name, nil, &etpHostRules); exists {
+		npw.delServiceRules(svcConfig.service)
+		npw.addServiceRules(svcConfig.service, etpHostRules)
 	}
 }
 
@@ -525,18 +548,19 @@ func (npw *nodePortWatcher) UpdateEndpoints(old *kapi.Endpoints, new *kapi.Endpo
 		return
 	}
 
-	// Delete old rules and add no new ones back
+	// Delete old endpoint rules and add normal ones back
 	if len(new.Subsets) == 0 {
 		if _, exists := npw.getServiceInfo(name); exists {
-			npw.DeleteEndpoints(old)
+			npw.DeleteEndpoints(old, nil)
 		}
 	}
 
+	// Update rules if hasHostNetworkEndpoints status changed
 	etpHostRulesNew := hasHostNetworkEndpoints(new, &npw.nodeIPManager.addresses)
 	if hasHostNetworkEndpoints(old, &npw.nodeIPManager.addresses) != etpHostRulesNew {
 		if _, exists := npw.getServiceInfo(name); exists {
-			npw.DeleteEndpoints(old)
-			npw.AddEndpoints(new)
+			npw.DeleteEndpoints(old, nil)
+			npw.AddEndpoints(new, nil)
 		}
 	}
 }

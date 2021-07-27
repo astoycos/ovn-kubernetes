@@ -12,8 +12,8 @@ type ServiceEventHandler interface {
 }
 
 type EndpointsEventHandler interface {
-	AddEndpoints(*kapi.Endpoints)
-	DeleteEndpoints(*kapi.Endpoints)
+	AddEndpoints(*kapi.Endpoints, *kapi.Service)
+	DeleteEndpoints(*kapi.Endpoints, *kapi.Service)
 	UpdateEndpoints(old, new *kapi.Endpoints)
 }
 
