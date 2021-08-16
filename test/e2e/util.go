@@ -251,6 +251,7 @@ func pokeEndpointHostname(clientContainer, protocol, targetHost string, targetPo
 	if err != nil {
 		fmt.Printf("FAILED Command was %s", curlCommand)
 		fmt.Printf("FAILED Response was %v", res)
+		time.Sleep(time.Second * 5000)
 	}
 	framework.ExpectNoError(err)
 
