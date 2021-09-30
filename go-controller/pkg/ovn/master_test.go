@@ -1163,6 +1163,10 @@ var _ = ginkgo.Describe("Gateway Init Operations", func() {
 			expectedNodeSwitch := &nbdb.LogicalSwitch{
 				UUID: node1.Name + "-UUID",
 				Name: node1.Name,
+				OtherConfig: map[string]string{
+					"subnet":      node1.NodeSubnet,
+					"exclude_ips": node1.NodeMgmtPortIP,
+				},
 			}
 			expectedClusterRouterPortGroup := &nbdb.PortGroup{
 				UUID: types.ClusterRtrPortGroupName + "-UUID",
@@ -1178,6 +1182,7 @@ var _ = ginkgo.Describe("Gateway Init Operations", func() {
 					"name": types.ClusterPortGroupName,
 				},
 			}
+			// TODO(astoycos) Once Libovsdb work is done we generally shouldn't be populating anything here (uless it's made by a different function outside of master.go)
 			dbSetup := libovsdbtest.TestSetup{
 				NBData: []libovsdbtest.TestData{
 					&nbdb.LogicalSwitch{
@@ -1185,7 +1190,6 @@ var _ = ginkgo.Describe("Gateway Init Operations", func() {
 						Name: types.OVNJoinSwitch,
 					},
 					expectedOVNClusterRouter,
-					expectedNodeSwitch,
 					expectedClusterRouterPortGroup,
 					expectedClusterPortGroup,
 				},
