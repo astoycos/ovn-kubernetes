@@ -920,6 +920,7 @@ func (oc *Controller) ensureNodeLogicalNetwork(node *kapi.Node, hostSubnets []*n
 		// Configure IGMP/MLD querier if the gateway IP address is known.
 		// Otherwise disable it.
 		if v4Gateway != nil || v6Gateway != nil {
+			logicalSwitch.OtherConfig["mcast_querier"] = "true"
 			logicalSwitch.OtherConfig["mcast_eth_src"] = nodeLRPMAC.String()
 
 			if v4Gateway != nil {
