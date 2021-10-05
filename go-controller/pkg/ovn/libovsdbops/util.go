@@ -13,7 +13,7 @@ import (
 	"github.com/ovn-org/libovsdb/model"
 	"github.com/ovn-org/libovsdb/ovsdb"
 	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/nbdb"
-	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/util"
+	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/types"
 	"k8s.io/klog"
 )
 
@@ -31,7 +31,7 @@ type ModelClient struct {
 }
 
 func NewModelClient(client client.Client) ModelClient {
-	return ModelClient{client: client}
+	return ModelClient{Client: client}
 }
 
 /*
@@ -397,7 +397,7 @@ func TransactAndCheck(client client.Client, ops []ovsdb.Operation) ([]ovsdb.Oper
 		return []ovsdb.OperationResult{{}}, nil
 	}
 
-	ctx, cancel := context.WithTimeout(context.TODO(), util.OVSDBTimeout)
+	ctx, cancel := context.WithTimeout(context.TODO(), types.OVSDBTimeout)
 	defer cancel()
 
 	results, err := client.Transact(ctx, ops...)

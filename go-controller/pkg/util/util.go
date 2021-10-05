@@ -8,7 +8,10 @@ import (
 	"strings"
 	"sync"
 
+	libovsdbclient "github.com/ovn-org/libovsdb/client"
 	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/config"
+	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/nbdb"
+	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/ovn/libovsdbops"
 	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/types"
 
 	"github.com/urfave/cli/v2"
@@ -67,7 +70,7 @@ var updateNodeSwitchLock sync.Mutex
 // is added to the logical switch's exclude_ips. This prevents ovn-northd log
 // spam about duplicate IP addresses.
 // See https://github.com/ovn-org/ovn-kubernetes/pull/779
-func UpdateNodeSwitchExcludeIPs(nodeName string, subnet *net.IPNet) error {
+func UpdateNodeSwitchExcludeIPs(nbClient libovsdbclient.Client, nodeName string, subnet *net.IPNet) error {
 	if utilnet.IsIPv6CIDR(subnet) {
 		// We don't exclude any IPs in IPv6
 		return nil
@@ -76,21 +79,24 @@ func UpdateNodeSwitchExcludeIPs(nodeName string, subnet *net.IPNet) error {
 	updateNodeSwitchLock.Lock()
 	defer updateNodeSwitchLock.Unlock()
 
-	stdout, stderr, err := RunOVNNbctl("lsp-list", nodeName)
-	if err != nil {
-		return fmt.Errorf("failed to list logical switch %q ports: stderr: %q, error: %v", nodeName, stderr, err)
-	}
+	lsps, err := libovsdbops.FindManagmentAndHoPortForNode(nbClient, nodeName)
 
 	var haveManagementPort, haveHybridOverlayPort bool
-	lines := strings.Split(stdout, "\n")
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if strings.Contains(line, "("+types.K8sPrefix+nodeName+")") {
+	switch len(lsps) {
+	case 0:
+		haveManagementPort = false
+		haveHybridOverlayPort = false
+	case 1:
+		if strings.Contains(lsps[0].Name, types.K8sPrefix+nodeName) {
 			haveManagementPort = true
-		} else if strings.Contains(line, "("+GetHybridOverlayPortName(nodeName)+")") {
-			// we always need to set to false because we do not reserve the IP on the LSP for HO
-			haveHybridOverlayPort = false
+
 		}
+		if strings.Contains(lsps[0].Name, types.HybridOverlayPrefix+nodeName) {
+			haveHybridOverlayPort = true
+		}
+	case 2:
+		haveManagementPort = true
+		haveHybridOverlayPort = true
 	}
 
 	mgmtIfAddr := GetNodeManagementIfAddr(subnet)
@@ -114,16 +120,27 @@ func UpdateNodeSwitchExcludeIPs(nodeName string, subnet *net.IPNet) error {
 		excludeIPs = mgmtIfAddr.IP.String()
 	}
 
-	args := []string{"--", "--if-exists", "remove", "logical_switch", nodeName, "other-config", "exclude_ips"}
-	if len(excludeIPs) > 0 {
-		args = []string{"--", "--if-exists", "set", "logical_switch", nodeName, "other-config:exclude_ips=" + excludeIPs}
+	nodeSwitch := &nbdb.LogicalSwitch{
+		Name: nodeName,
 	}
 
-	_, stderr, err = RunOVNNbctl(args...)
+	ops, err := libovsdbops.RemoveSwitchOtherConfigOps(nbClient, nil, nodeSwitch, "exclude_ips")
 	if err != nil {
-		return fmt.Errorf("failed to set node %q switch exclude_ips, "+
-			"stderr: %q, error: %v", nodeName, stderr, err)
+		return err
 	}
+
+	if len(excludeIPs) > 0 {
+		ops, err = libovsdbops.SetSwitchOtherConfigOps(nbClient, nil, nodeSwitch, "exclude_ips", excludeIPs)
+		if err != nil {
+			return err
+		}
+	}
+
+	_, err = libovsdbops.TransactAndCheck(nbClient, ops)
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
 

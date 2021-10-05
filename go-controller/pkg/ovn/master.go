@@ -685,7 +685,7 @@ func (oc *Controller) syncNodeManagementPort(node *kapi.Node, hostSubnets []*net
 	}
 
 	if v4Subnet != nil {
-		if err := util.UpdateNodeSwitchExcludeIPs(node.Name, v4Subnet); err != nil {
+		if err := util.UpdateNodeSwitchExcludeIPs(oc.nbClient, node.Name, v4Subnet); err != nil {
 			return err
 		}
 	}
@@ -869,18 +869,16 @@ func (oc *Controller) ensureNodeLogicalNetwork(node *kapi.Node, hostSubnets []*n
 			ExistingResult: &[]nbdb.LogicalRouter{},
 		},
 	}
-	if _, err := oc.modelClient.CreateOrUpdate(opModels...); err != nil {
-		return fmt.Errorf("failed to add logical port to router, error: %v", err)
-	}
 
 	// Create the Node's Logical Switch and set it's subnet
-	opModels = []libovsdbops.OperationModel{
-		{
-			Model:          &logicalSwitch,
-			ModelPredicate: func(lr *nbdb.LogicalSwitch) bool { return lr.Name == nodeName },
-			ExistingResult: &[]nbdb.LogicalSwitch{},
+	opModels = append(opModels, libovsdbops.OperationModel{
+		Model:          &logicalSwitch,
+		ModelPredicate: func(ls *nbdb.LogicalSwitch) bool { return ls.Name == nodeName },
+		OnModelUpdates: []interface{}{
+			&logicalSwitch.OtherConfig,
 		},
-	}
+	})
+
 	if _, err := oc.modelClient.CreateOrUpdate(opModels...); err != nil {
 		return fmt.Errorf("failed to add logical logical switch for node %s, error: %v", nodeName, err)
 	}
@@ -941,10 +939,10 @@ func (oc *Controller) ensureNodeLogicalNetwork(node *kapi.Node, hostSubnets []*n
 			{
 				Model:          &logicalSwitch,
 				ModelPredicate: func(lr *nbdb.LogicalSwitch) bool { return lr.Name == nodeName },
-				OnModelUpdates: []interface{}{
+				OnModelMutations: []interface{}{
 					&logicalSwitch.OtherConfig,
 				},
-				ExistingResult: &[]nbdb.LogicalSwitch{},
+				ErrNotFound: true,
 			},
 		}
 		if _, err := oc.modelClient.CreateOrUpdate(opModels...); err != nil {

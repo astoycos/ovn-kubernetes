@@ -2,12 +2,14 @@ package libovsdbops
 
 import (
 	"fmt"
+	"strings"
 
 	libovsdbclient "github.com/ovn-org/libovsdb/client"
 	"github.com/ovn-org/libovsdb/model"
 	libovsdb "github.com/ovn-org/libovsdb/ovsdb"
 
 	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/nbdb"
+	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/types"
 )
 
 // findSwitch looks up the switch in the cache and sets the UUID
@@ -21,7 +23,7 @@ func findSwitch(nbClient libovsdbclient.Client, lswitch *nbdb.LogicalSwitch) err
 		return item.Name == lswitch.Name
 	}).List(&switches)
 	if err != nil {
-		return fmt.Errorf("can't find router %+v: %v", *lswitch, err)
+		return fmt.Errorf("can't find switch %+v: %v", *lswitch, err)
 	}
 
 	if len(switches) > 1 {
@@ -103,4 +105,67 @@ func ListSwitchesWithLoadBalancers(nbClient libovsdbclient.Client) ([]nbdb.Logic
 		return item.LoadBalancer != nil
 	}).List(switches)
 	return *switches, err
+}
+
+func FindManagmentAndHoPortForNode(nbClient libovsdbclient.Client, nodeName string) ([]nbdb.LogicalSwitchPort, error) {
+	lsps := &[]nbdb.LogicalSwitchPort{}
+	err := nbClient.WhereCache(func(item *nbdb.LogicalSwitchPort) bool {
+		return strings.Contains(item.Name, types.K8sPrefix+nodeName) ||
+			strings.Contains(item.Name, types.HybridOverlayPrefix+nodeName)
+	}).List(lsps)
+	return *lsps, err
+}
+
+func SetSwitchOtherConfigOps(nbClient libovsdbclient.Client, ops []libovsdb.Operation, lswitch *nbdb.LogicalSwitch, key, value string) ([]libovsdb.Operation, error) {
+	if ops == nil {
+		ops = []libovsdb.Operation{}
+	}
+
+	err := findSwitch(nbClient, lswitch)
+	if err != nil {
+		return nil, err
+	}
+
+	otherConfig := map[string]string{
+		key: value,
+	}
+
+	op, err := nbClient.Where(lswitch).Mutate(lswitch, model.Mutation{
+		Field:   &lswitch.OtherConfig,
+		Mutator: libovsdb.MutateOperationInsert,
+		Value:   otherConfig,
+	})
+	if err != nil {
+		return nil, err
+	}
+	ops = append(ops, op...)
+
+	return ops, nil
+}
+
+func RemoveSwitchOtherConfigOps(nbClient libovsdbclient.Client, ops []libovsdb.Operation, lswitch *nbdb.LogicalSwitch, key string) ([]libovsdb.Operation, error) {
+	if ops == nil {
+		ops = []libovsdb.Operation{}
+	}
+
+	err := findSwitch(nbClient, lswitch)
+	if err != nil {
+		return nil, err
+	}
+
+	otherConfig := map[string]string{
+		key: "",
+	}
+
+	op, err := nbClient.Where(lswitch).Mutate(lswitch, model.Mutation{
+		Field:   &lswitch.OtherConfig,
+		Mutator: libovsdb.MutateOperationDelete,
+		Value:   otherConfig,
+	})
+	if err != nil {
+		return nil, err
+	}
+	ops = append(ops, op...)
+
+	return ops, nil
 }
