@@ -46,12 +46,32 @@ func BuildMutationsFromFields(fields []interface{}, mutator ovsdb.Mutator) []mod
 	mutations := make([]model.Mutation, 0, len(fields))
 	for _, field := range fields {
 		v := reflect.ValueOf(field)
+
 		if v.Kind() != reflect.Ptr {
 			panic(fmt.Sprintf("Expected Ptr but got %s", v.Kind()))
 		}
 		if v.IsNil() || v.Elem().IsNil() {
 			continue
 		}
+
+		if m, ok := field.(*map[string]string); ok {
+			// check if all values on m are zero, if so create slice of keys of m and set that to field
+			allEmpty := true
+			keySlice := []string{}
+			for key, value := range *m {
+				keySlice = append(keySlice, key)
+				if len(value) > 0 {
+					allEmpty = false
+					break
+				}
+			}
+			if allEmpty {
+				v = reflect.ValueOf(&keySlice)
+			}
+		} else if v.Elem().Kind() == reflect.Map {
+			panic(fmt.Sprintf("map type %v is not supported", v.Elem().Kind()))
+		}
+
 		mutation := model.Mutation{
 			Field:   field,
 			Mutator: mutator,
@@ -99,6 +119,12 @@ type OperationModel struct {
 func (m *ModelClient) WithClient(client client.Client) *ModelClient {
 	cl := NewModelClient(client)
 	return &cl
+}
+
+// GetClient is useful for instances where we want to use the raw client embedded in
+// ModelClient directly
+func (m *ModelClient) GetClient() client.Client {
+	return m.client
 }
 
 /*
@@ -186,14 +212,14 @@ type opModelToOpMapper func(model interface{}, opModel *OperationModel) (o []ovs
 func (m *ModelClient) buildOps(doWhenFound opModelToOpMapper, doWhenNotFound opModelToOpMapper, opModels ...OperationModel) (interface{}, []ovsdb.Operation, error) {
 	ops := []ovsdb.Operation{}
 	notfound := []interface{}{}
-	for _, opModel := range opModels {
+	for i, opModel := range opModels {
 		if opModel.ExistingResult == nil && opModel.Model != nil {
 			opModel.ExistingResult = getListFromModel(opModel.Model)
 		}
 
 		// lookup
 		if opModel.ModelPredicate != nil {
-			if err := m.client.WhereCache(opModel.ModelPredicate).List(opModel.ExistingResult); err != nil {
+			if err := m.client.WhereCache(opModels[i].ModelPredicate).List(opModel.ExistingResult); err != nil {
 				return nil, nil, fmt.Errorf("unable to list items for model, err: %v", err)
 			}
 		} else if opModel.Model != nil {
@@ -280,7 +306,7 @@ func (m *ModelClient) mutate(lookUpModel interface{}, opModel *OperationModel, m
 	if err != nil {
 		return nil, fmt.Errorf("unable to mutate model, err: %v", err)
 	}
-	klog.V(5).Infof("Mutate operations generated as: %+v", o)
+	klog.V(5).Infof("\nMutate operations generated as: %+v\n", o)
 	return o, nil
 }
 
@@ -289,7 +315,7 @@ func (m *ModelClient) delete(lookUpModel interface{}, opModel *OperationModel) (
 	if err != nil {
 		return nil, fmt.Errorf("unable to delete model, err: %v", err)
 	}
-	klog.V(5).Infof("Delete operations generated as: %+v", o)
+	fmt.Printf("Delete operations generated as: %+v", o)
 	return o, nil
 }
 
