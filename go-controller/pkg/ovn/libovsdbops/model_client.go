@@ -101,6 +101,13 @@ func (m *ModelClient) WithClient(client client.Client) *ModelClient {
 	return &cl
 }
 
+// GetClient is useful for instances where we want to use the raw client embedded in
+// ModelClient directly
+// TODO (astoycos) remove once we convert to using modeClient throughout the codebase
+func (m *ModelClient) GetClient() client.Client {
+	return m.client
+}
+
 /*
  CreateOrUpdate performs idempotent operations against libovsdb according to the
  following logic:
