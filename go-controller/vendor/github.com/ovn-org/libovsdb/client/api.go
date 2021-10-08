@@ -421,6 +421,7 @@ func newAPI(cache *cache.TableCache) API {
 
 // newConditionalAPI returns a new ConditionalAPI to interact with the database
 func newConditionalAPI(cache *cache.TableCache, cond Conditional) ConditionalAPI {
+	fmt.Printf("\n CONDITION %v", cond)
 	return api{
 		cache: cache,
 		cond:  cond,

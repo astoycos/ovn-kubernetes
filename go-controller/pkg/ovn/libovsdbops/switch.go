@@ -103,11 +103,11 @@ func FindSwitchesWithACL(nbClient libovsdbclient.Client, aclUUID string) ([]nbdb
 		return nil, fmt.Errorf("can't find switches: %v", err)
 	}
 
-	if len(*switches) == 0 {
+	if len(switches) == 0 {
 		return nil, libovsdbclient.ErrNotFound
 	}
 
-	return *switches, nil
+	return switches, nil
 }
 
 func AddLoadBalancersToSwitchOps(nbClient libovsdbclient.Client, ops []libovsdb.Operation, lswitch *nbdb.LogicalSwitch, lbs ...*nbdb.LoadBalancer) ([]libovsdb.Operation, error) {
