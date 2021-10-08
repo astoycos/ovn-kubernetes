@@ -211,3 +211,18 @@ func FindRejectACLs(nbClient libovsdbclient.Client) ([]*nbdb.ACL, error) {
 
 	return aclPtrs, nil
 }
+
+func FindACLs(nbClient libovsdbclient.Client, lookupFunction func(item *nbdb.ACL) bool) ([]*nbdb.ACL, error) {
+	acls := []nbdb.ACL{}
+	err := nbClient.WhereCache(lookupFunction).List(&acls)
+	if err != nil {
+		return nil, err
+	}
+
+	aclPtrs := []*nbdb.ACL{}
+	for i := range acls {
+		aclPtrs = append(aclPtrs, &acls[i])
+	}
+
+	return aclPtrs, nil
+}

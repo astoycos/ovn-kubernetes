@@ -60,13 +60,8 @@ func FindSwitch(nbClient libovsdbclient.Client, lookupFunction func(item *nbdb.L
 }
 
 // FindSwitchWithAcl determines if a Logical Switch contains a provided ACL
-<<<<<<< HEAD
-func FindSwitchesWithAcl(nbClient libovsdbclient.Client, aclUUID string) ([]nbdb.LogicalSwitch, error) {
-	switches := &[]nbdb.LogicalSwitch{}
-=======
 func FindNodeSwitchesWithACL(nbClient libovsdbclient.Client, aclUUID string) ([]nbdb.LogicalSwitch, error) {
 	switches := []nbdb.LogicalSwitch{}
->>>>>>> 8ee57560... update libovsdbops for acl and switches, mostly naming conversion for node switches
 
 	err := nbClient.WhereCache(func(item *nbdb.LogicalSwitch) bool {
 		// Ignore external and Join switches
@@ -285,8 +280,9 @@ func UpdateNodeSwitchExcludeIPs(modelClient ModelClient, nodeName string, subnet
 }
 
 // RemoveACLFromNodeSwitches removes the ACL uuid entry from Logical Switch acl's list.
-func RemoveACLFromSwitches(modelClient ModelClient, switches []nbdb.LogicalSwitch, aclUUID string) error {
+func RemoveACLFromNodeSwitches(modelClient ModelClient, switches []nbdb.LogicalSwitch, aclUUID string) error {
 	var opModels []OperationModel
+	//TODO(astoycos) turn this into one opModel
 	for i, sw := range switches {
 		sw.ACLs = []string{aclUUID}
 		swName := switches[i].Name
@@ -299,15 +295,10 @@ func RemoveACLFromSwitches(modelClient ModelClient, switches []nbdb.LogicalSwitc
 			ErrNotFound: true,
 			BulkOp:      true,
 		})
-		if err != nil {
-			return fmt.Errorf("error while removing ACL: %s, from switches: %v", aclUUID, err)
-		}
-		ops = append(ops, op...)
 	}
 
-	_, err := TransactAndCheckAndSetUUIDs(modelClient.GetClient(), switches, ops)
-	if err != nil {
-		return err
+	if err := modelClient.Delete(opModels...); err != nil {
+		return fmt.Errorf("error while removing ACL: %s, from switches err: %v", aclUUID, err)
 	}
 
 	return nil

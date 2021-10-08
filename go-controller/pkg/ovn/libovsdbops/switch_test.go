@@ -217,13 +217,13 @@ func TestRemoveACLFromNodeSwitches(t *testing.T) {
 
 	fakeSwitch1 := nbdb.LogicalSwitch{
 		Name: "sw1",
-		UUID: "sw1-uuid",
+		//UUID: "sw1-uuid",
 		ACLs: []string{fakeACL.UUID},
 	}
 
 	fakeSwitch2 := nbdb.LogicalSwitch{
 		Name: "sw2",
-		UUID: "sw2-uuid",
+		//UUID: "sw2-uuid",
 		ACLs: []string{fakeACL.UUID},
 	}
 
