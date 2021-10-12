@@ -9,6 +9,7 @@ import (
 	libovsdbclient "github.com/ovn-org/libovsdb/client"
 	"github.com/ovn-org/libovsdb/model"
 	libovsdb "github.com/ovn-org/libovsdb/ovsdb"
+	"k8s.io/klog/v2"
 	utilnet "k8s.io/utils/net"
 
 	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/config"
@@ -228,7 +229,7 @@ func UpdateNodeSwitchExcludeIPs(modelClient ModelClient, nodeName string, subnet
 	mgmtIfAddr := util.GetNodeManagementIfAddr(subnet)
 	hybridOverlayIfAddr := util.GetNodeHybridOverlayIfAddr(subnet)
 
-	fmt.Printf("MP %v HO %v MPA %v HOA %v", haveManagementPort, haveHybridOverlayPort, mgmtIfAddr, hybridOverlayIfAddr)
+	klog.V(5).Infof("haveMP %v haveHO %v ManagementPortAddress %v HybridOverlayAddress %v", haveManagementPort, haveHybridOverlayPort, mgmtIfAddr, hybridOverlayIfAddr)
 	var excludeIPs string
 	if config.HybridOverlay.Enabled {
 		if haveHybridOverlayPort && haveManagementPort {
@@ -280,7 +281,7 @@ func UpdateNodeSwitchExcludeIPs(modelClient ModelClient, nodeName string, subnet
 }
 
 // RemoveACLFromNodeSwitches removes the ACL uuid entry from Logical Switch acl's list.
-func RemoveACLFromNodeSwitches(modelClient ModelClient, switches []nbdb.LogicalSwitch, aclUUID string) error {
+func RemoveACLFromSwitches(modelClient ModelClient, switches []nbdb.LogicalSwitch, aclUUID string) error {
 	var opModels []OperationModel
 	//TODO(astoycos) turn this into one opModel
 	for i, sw := range switches {
