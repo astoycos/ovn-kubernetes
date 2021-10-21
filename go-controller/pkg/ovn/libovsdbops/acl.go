@@ -8,6 +8,7 @@ import (
 	libovsdb "github.com/ovn-org/libovsdb/ovsdb"
 
 	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/nbdb"
+	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/types"
 )
 
 // getACLName returns the ACL name if it has one otherwise returns
@@ -184,6 +185,24 @@ func UpdateACLsLoggingOps(nbClient libovsdbclient.Client, ops []libovsdb.Operati
 	return ops, nil
 }
 
+func DeleteACLs(nbClient libovsdbclient.Client, acls []nbdb.ACL) error {
+	opModels := []OperationModel{}
+	for _, acl := range acls {
+		opModels = append(opModels, OperationModel{
+			Model:          &acl,
+			ModelPredicate: func(item *nbdb.ACL) bool { return IsEquivalentACL(item, &acl) },
+		})
+	}
+
+	m := NewModelClient(nbClient)
+	err := m.Delete(opModels...)
+	if err != nil {
+		return fmt.Errorf("failed to manually delete ACLs err: %v", err)
+	}
+
+	return nil
+}
+
 func UpdateACLLogging(nbClient libovsdbclient.Client, acl *nbdb.ACL) error {
 	ops, err := UpdateACLsLoggingOps(nbClient, nil, acl)
 	if err != nil {
@@ -194,34 +213,70 @@ func UpdateACLLogging(nbClient libovsdbclient.Client, acl *nbdb.ACL) error {
 	return err
 }
 
-func FindRejectACLs(nbClient libovsdbclient.Client) ([]*nbdb.ACL, error) {
-	acls := []nbdb.ACL{}
-	err := nbClient.WhereCache(func(acl *nbdb.ACL) bool {
-		return acl.Action == nbdb.ACLActionReject
-	}).List(&acls)
-	if err != nil {
-		return nil, err
-	}
-
-	aclPtrs := []*nbdb.ACL{}
-	for i := range acls {
-		aclPtrs = append(aclPtrs, &acls[i])
-	}
-
-	return aclPtrs, nil
-}
-
-func FindACLs(nbClient libovsdbclient.Client, lookupFunction func(item *nbdb.ACL) bool) ([]*nbdb.ACL, error) {
+// findACLsByPredicate looks up ACLs from the cache based on a given predicate
+func findACLsByPredicate(nbClient libovsdbclient.Client, lookupFunction func(item *nbdb.ACL) bool) ([]nbdb.ACL, error) {
 	acls := []nbdb.ACL{}
 	err := nbClient.WhereCache(lookupFunction).List(&acls)
 	if err != nil {
 		return nil, err
 	}
 
-	aclPtrs := []*nbdb.ACL{}
-	for i := range acls {
-		aclPtrs = append(aclPtrs, &acls[i])
+	if len(acls) == 0 {
+		return nil, libovsdbclient.ErrNotFound
 	}
 
-	return aclPtrs, nil
+	return acls, nil
+}
+
+func FindRejectACLs(nbClient libovsdbclient.Client) ([]nbdb.ACL, error) {
+	rejectACLLookupFcn := func(acl *nbdb.ACL) bool {
+		return acl.Action == nbdb.ACLActionReject
+	}
+
+	acls, err := findACLsByPredicate(nbClient, rejectACLLookupFcn)
+	if err != nil {
+		return nil, err
+	}
+
+	return acls, nil
+
+}
+
+// FindACLsByPriorityRange looks up the acls with priorities within to a given inclusive range
+func FindACLsByPriorityRange(nbClient libovsdbclient.Client, startPriority, endPriority int) ([]nbdb.ACL, error) {
+	// Lookup all ACLs in the specified priority range
+	priorityRangeLookupFcn := func(item *nbdb.ACL) bool {
+		return (item.Priority <= types.EgressFirewallStartPriority ||
+			item.Priority >= types.MinimumReservedEgressFirewallPriority)
+	}
+
+	acls, err := findACLsByPredicate(nbClient, priorityRangeLookupFcn)
+	if err != nil {
+		return nil, err
+	}
+
+	return acls, nil
+}
+
+// FindACLsByExternalID looks up the acls with the given externalID/s
+func FindACLsByExernalID(nbClient libovsdbclient.Client, externalIDs map[string]string) ([]nbdb.ACL, error) {
+	// Find ACLs for with a given exernalID
+	ACLLookupFcn := func(item *nbdb.ACL) bool {
+		aclMatch := false
+		for k, v := range externalIDs {
+			if itemVal, ok := item.ExternalIDs[k]; ok {
+				if itemVal == v {
+					aclMatch = true
+				}
+			}
+		}
+		return aclMatch
+	}
+
+	acls, err := findACLsByPredicate(nbClient, ACLLookupFcn)
+	if err != nil {
+		return nil, err
+	}
+
+	return acls, nil
 }

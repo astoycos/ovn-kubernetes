@@ -120,12 +120,6 @@ func (m *ModelClient) WithClient(client client.Client) *ModelClient {
 	return &cl
 }
 
-// GetClient is useful for instances where we want to use the raw client embedded in
-// ModelClient directly
-func (m *ModelClient) GetClient() client.Client {
-	return m.client
-}
-
 /*
  CreateOrUpdate performs idempotent operations against libovsdb according to the
  following logic:
@@ -314,7 +308,7 @@ func (m *ModelClient) delete(lookUpModel interface{}, opModel *OperationModel) (
 	if err != nil {
 		return nil, fmt.Errorf("unable to delete model, err: %v", err)
 	}
-	fmt.Printf("Delete operations generated as: %+v", o)
+	klog.V(5).Infof("Delete operations generated as: %+v", o)
 	return o, nil
 }
 
