@@ -100,8 +100,6 @@ func (oc *Controller) syncEgressFirewall(egressFirwalls []interface{}) {
 		return
 	}
 
-	fmt.Printf("Removing Egress Firewall %v  \n", egressFirewallACLs)
-
 	if config.Gateway.Mode == config.GatewayModeShared {
 		// Mode is shared gateway mode, make sure to delete all egfw ACLs on the node switches
 		if len(egressFirewallACLs) != 0 {
@@ -417,8 +415,6 @@ func (oc *Controller) deleteEgressFirewallRules(externalID string) error {
 		klog.Warningf("No egressFirewall ACLs to delete in ns: %s", externalID)
 		return nil
 	}
-
-	klog.V(5).Infof("Removing ACLs %v", egressFirewallACLs)
 
 	// delete egress firewall acls off any logical switch which has it
 	for _, egressFirewallACL := range egressFirewallACLs {
