@@ -69,7 +69,6 @@ func TestRemoveACLFromNodeSwitches(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.desc, func(t *testing.T) {
-			var fakeModelClient ModelClient
 			stopChan := make(chan struct{})
 
 			nbClient, _ := libovsdbtest.NewNBTestHarness(tt.initialNbdb, stopChan)
@@ -85,10 +84,10 @@ func TestRemoveACLFromNodeSwitches(t *testing.T) {
 			}
 
 			matcher := libovsdbtest.HaveDataIgnoringUUIDs(tt.expectedNbdb.NBData)
-			success, err := matcher.Match(fakeModelClient.client)
+			success, err := matcher.Match(nbClient)
 
 			if !success {
-				t.Fatal(fmt.Errorf("test: \"%s\" didn't match expected with actual, err: %v", tt.desc, matcher.FailureMessage(fakeModelClient.client)))
+				t.Fatal(fmt.Errorf("test: \"%s\" didn't match expected with actual, err: %v", tt.desc, matcher.FailureMessage(nbClient)))
 			}
 			if err != nil {
 				t.Fatal(fmt.Errorf("test: \"%s\" encountered error: %v", tt.desc, err))

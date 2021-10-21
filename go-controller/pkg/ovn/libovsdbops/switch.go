@@ -169,6 +169,12 @@ func RemoveACLFromNodeSwitches(nbClient libovsdbclient.Client, aclUUID string) e
 		if strings.Contains(item.Name, "join") || strings.Contains(item.Name, "ext") {
 			return false
 		}
+		// Only get switches which have the ACL
+		for _, uuid := range item.ACLs {
+			if uuid == aclUUID {
+				return true
+			}
+		}
 
 		return false
 	}
@@ -190,7 +196,13 @@ func RemoveACLFromNodeSwitches(nbClient libovsdbclient.Client, aclUUID string) e
 func RemoveACLFromAllSwitches(nbClient libovsdbclient.Client, aclUUID string) error {
 	// Find all switches
 	nodeSwichLookupFcn := func(item *nbdb.LogicalSwitch) bool {
-		return true
+		// Only get switches which have the ACL
+		for _, uuid := range item.ACLs {
+			if uuid == aclUUID {
+				return true
+			}
+		}
+		return false
 	}
 
 	switches, err := findSwitchesByPredicate(nbClient, nodeSwichLookupFcn)
