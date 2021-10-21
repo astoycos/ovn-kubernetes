@@ -658,7 +658,7 @@ func (oc *Controller) syncNodeManagementPort(node *kapi.Node, hostSubnets []*net
 	}
 
 	if v4Subnet != nil {
-		if err := libovsdbops.UpdateNodeSwitchExcludeIPs(oc.modelClient, node.Name, v4Subnet); err != nil {
+		if err := util.UpdateNodeSwitchExcludeIPs(oc.nbClient, node.Name, v4Subnet); err != nil {
 			return err
 		}
 	}
@@ -1416,12 +1416,7 @@ func (oc *Controller) syncNodes(nodes []interface{}) {
 		delete(chassisMap, nodeName)
 	}
 
-	// Get all logical siwtches with other-config set
-	otherConfigSearch := func(item *nbdb.LogicalSwitch) bool {
-		return item.OtherConfig != nil
-	}
-
-	nodeSwitches, err := libovsdbops.FindSwitch(oc.nbClient, otherConfigSearch)
+	nodeSwitches, err := libovsdbops.FindSwitchesWithOtherConfig(oc.nbClient)
 	if err != nil {
 		klog.Errorf("Failed to get node logical switches which have other-config set error: %v", err)
 		return
