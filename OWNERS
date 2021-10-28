@@ -1,17 +1,25 @@
 reviewers:
+  - abhat
+  - alexanderConstantinescu
+  - aojea
+  - danielmellado
+  - danwinship
+  - dcbw
   - JacobTanenbaum
-  - pecameron
+  - rcarrillocruz
   - squeed
-  - dcbw
-  - rajatchopra
-  - shettyg
-  - aserdean
-  - alinbalutoiu
-  - girishmg
+  - tssurya
+  - trozet
 approvers:
-  - rajatchopra
-  - shettyg
+  - abhat
+  - danwinship
   - dcbw
-  - girishmg
-  - aserdean
-  - russellb
+  - knobunc
+  - trozet
+  - rcarrillocruz
+  - squeed
+  - JacobTanenbaum
+
+# Bugzilla info
+component: Networking
+subcomponent: ovn-kubernetes

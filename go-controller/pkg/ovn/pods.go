@@ -174,7 +174,8 @@ func (oc *Controller) waitForNodeLogicalSwitch(nodeName string) (*nbdb.LogicalSw
 	return ls, nil
 }
 
-func (oc *Controller) addRoutesGatewayIP(pod *kapi.Pod, podAnnotation *util.PodAnnotation, nodeSubnets []*net.IPNet) error {
+func (oc *Controller) addRoutesGatewayIP(pod *kapi.Pod, podAnnotation *util.PodAnnotation, nodeSubnets []*net.IPNet,
+	routingExternalGWs *gatewayInfo, routingPodGWs map[string]*gatewayInfo, hybridOverlayExternalGW net.IP) error {
 	// if there are other network attachments for the pod, then check if those network-attachment's
 	// annotation has default-route key. If present, then we need to skip adding default route for
 	// OVN interface
@@ -201,6 +202,14 @@ func (oc *Controller) addRoutesGatewayIP(pod *kapi.Pod, podAnnotation *util.PodA
 		if err != nil {
 			return err
 		}
+		// DUALSTACK FIXME: hybridOverlayExternalGW is not Dualstack
+		// When oc.getHybridOverlayExternalGwAnnotation() supports dualstack, return error if no match.
+		// If external gateway mode is configured, need to use it for all outgoing traffic, so don't want
+		// to fall back to the default gateway here
+		if hybridOverlayExternalGW != nil && utilnet.IsIPv6(hybridOverlayExternalGW) != isIPv6 {
+			klog.Warningf("Pod %s/%s has no external gateway for %s", pod.Namespace, pod.Name, util.IPFamilyName(isIPv6))
+			continue
+		}
 
 		gatewayIPnet := util.GetNodeGatewayIfAddr(nodeSubnet)
 
@@ -209,7 +218,9 @@ func (oc *Controller) addRoutesGatewayIP(pod *kapi.Pod, podAnnotation *util.PodA
 			otherDefaultRoute = otherDefaultRouteV6
 		}
 		var gatewayIP net.IP
-		if otherDefaultRoute {
+		hasRoutingExternalGWs := len(routingExternalGWs.gws) > 0
+		hasPodRoutingGWs := len(routingPodGWs) > 0
+		if otherDefaultRoute || (hybridOverlayExternalGW != nil && !hasRoutingExternalGWs && !hasPodRoutingGWs) {
 			for _, clusterSubnet := range config.Default.ClusterSubnets {
 				if isIPv6 == utilnet.IsIPv6CIDR(clusterSubnet.CIDR) {
 					podAnnotation.Routes = append(podAnnotation.Routes, util.PodRoute{
@@ -225,6 +236,9 @@ func (oc *Controller) addRoutesGatewayIP(pod *kapi.Pod, podAnnotation *util.PodA
 						NextHop: gatewayIPnet.IP,
 					})
 				}
+			}
+			if hybridOverlayExternalGW != nil {
+				gatewayIP = util.GetNodeHybridOverlayIfAddr(nodeSubnet).IP
 			}
 		} else {
 			gatewayIP = gatewayIPnet.IP
@@ -380,13 +394,22 @@ func (oc *Controller) addLogicalPort(pod *kapi.Pod) (err error) {
 		}
 
 		releaseIPs = true
+
+	}
+
+	// Ensure the namespace/nsInfo exists
+	routingExternalGWs, routingPodGWs, hybridOverlayExternalGW, err := oc.addPodToNamespace(pod.Namespace, podIfAddrs)
+	if err != nil {
+		return err
+	}
+
+	if needsIP {
 		var networks []*types.NetworkSelectionElement
 
 		networks, err = util.GetPodNetSelAnnotation(pod, util.DefNetworkAnnotation)
 		// handle error cases separately first to ensure binding to err, otherwise the
 		// defer will fail
 		if err != nil {
-
 			return fmt.Errorf("error while getting custom MAC config for port %q from "+
 				"default-network's network-attachment: %v", portName, err)
 		} else if networks != nil && len(networks) != 1 {
@@ -412,10 +435,11 @@ func (oc *Controller) addLogicalPort(pod *kapi.Pod) (err error) {
 			return fmt.Errorf("cannot retrieve subnet for assigning gateway routes for pod %s, node: %s",
 				pod.Name, logicalSwitch)
 		}
-		err = oc.addRoutesGatewayIP(pod, &podAnnotation, nodeSubnets)
+		err = oc.addRoutesGatewayIP(pod, &podAnnotation, nodeSubnets, routingExternalGWs, routingPodGWs, hybridOverlayExternalGW)
 		if err != nil {
 			return err
 		}
+
 		var marshalledAnnotation map[string]interface{}
 		marshalledAnnotation, err = util.MarshalPodAnnotation(&podAnnotation)
 		if err != nil {
@@ -428,12 +452,6 @@ func (oc *Controller) addLogicalPort(pod *kapi.Pod) (err error) {
 			return fmt.Errorf("failed to set annotation on pod %s: %v", pod.Name, err)
 		}
 		releaseIPs = false
-	}
-
-	// Ensure the namespace/nsInfo exists
-	routingExternalGWs, routingPodGWs, err := oc.addPodToNamespace(pod.Namespace, podIfAddrs)
-	if err != nil {
-		return err
 	}
 
 	// if we have any external or pod Gateways, add routes

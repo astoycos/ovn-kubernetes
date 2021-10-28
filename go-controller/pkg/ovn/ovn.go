@@ -83,6 +83,9 @@ type namespaceInfo struct {
 	// the policy itself.
 	networkPolicies map[string]*networkPolicy
 
+	hybridOverlayExternalGW net.IP
+	hybridOverlayVTEP       net.IP
+
 	// routingExternalGWs is a slice of net.IP containing the values parsed from
 	// annotation k8s.ovn.org/routing-external-gws
 	routingExternalGWs gatewayInfo
@@ -351,7 +354,6 @@ func (oc *Controller) Run(wg *sync.WaitGroup, nodeName string) error {
 		unidlingController := unidling.NewController(
 			oc.recorder,
 			oc.watchFactory.ServiceInformer(),
-			oc.sbClient,
 		)
 		wg.Add(1)
 		go func() {

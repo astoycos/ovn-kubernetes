@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/coreos/go-iptables/iptables"
 	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/config"
 	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/factory"
 	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/kube"
@@ -1101,6 +1102,19 @@ func newSharedGateway(nodeName string, subnets []*net.IPNet, gwNextHops []net.IP
 			return gatewayReady(gwBridge.patchPort)
 		}
 	}
+
+	// OCP HACK -- block MCS ports
+	rules := []iptRule{}
+	if config.IPv4Mode {
+		generateBlockMCSRules(&rules, iptables.ProtocolIPv4)
+	}
+	if config.IPv6Mode {
+		generateBlockMCSRules(&rules, iptables.ProtocolIPv6)
+	}
+	if err := addIptRules(rules); err != nil {
+		return nil, fmt.Errorf("failed to setup MCS-blocking rules: %w", err)
+	}
+	// END OCP HACK
 
 	gw.initFunc = func() error {
 		// Program cluster.GatewayIntf to let non-pod traffic to go to host

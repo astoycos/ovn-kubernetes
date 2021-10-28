@@ -91,6 +91,7 @@ func cleanupGateway(fexec *ovntest.FakeExec, nodeName string, nodeSubnet string,
 }
 
 /*
+>>>>>>> origin/master
 func defaultFakeExec(nodeSubnet, nodeName string, sctpSupport bool) *ovntest.FakeExec {
 	const (
 		mgmtMAC string = "01:02:03:04:05:06"
@@ -302,6 +303,7 @@ func addNodeLogicalFlows(testData []libovsdb.TestData, expectedOVNClusterRouter 
 		Nexthops: []string{node.NodeMgmtPortIP},
 		Priority: intPriority,
 	})
+
 	testData = append(testData, &nbdb.LogicalRouterPolicy{
 		UUID:     "policy-based-route-2-UUID",
 		Action:   nbdb.LogicalRouterPolicyActionReroute,
@@ -316,7 +318,7 @@ func addNodeLogicalFlows(testData []libovsdb.TestData, expectedOVNClusterRouter 
 }
 
 func populatePortAddresses(nodeName, lsp, mac, ips string, ovnClient goovn.Client) {
-	cmd, err := ovnClient.LSPAdd(nodeName, lsp)
+	cmd, err := ovnClient.LSPAdd(nodeName, "", lsp)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	err = cmd.Execute()
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())

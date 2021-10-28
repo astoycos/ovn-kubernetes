@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	hotypes "github.com/ovn-org/ovn-kubernetes/go-controller/hybrid-overlay/pkg/types"
 	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/config"
 	addressset "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/ovn/address_set"
 	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/util"
@@ -77,19 +78,19 @@ func (oc *Controller) getRoutingPodGWs(nsInfo *namespaceInfo) map[string]*gatewa
 
 // addPodToNamespace adds the pod's IP to the namespace's address set and returns
 // pod's routing gateway info
-func (oc *Controller) addPodToNamespace(ns string, ips []*net.IPNet) (*gatewayInfo, map[string]*gatewayInfo, error) {
+func (oc *Controller) addPodToNamespace(ns string, ips []*net.IPNet) (*gatewayInfo, map[string]*gatewayInfo, net.IP, error) {
 	nsInfo, nsUnlock, err := oc.ensureNamespaceLocked(ns, true, nil)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to ensure namespace locked: %v", err)
+		return nil, nil, nil, fmt.Errorf("failed to ensure namespace locked: %v", err)
 	}
 
 	defer nsUnlock()
 
 	if err := nsInfo.addressSet.AddIPs(createIPAddressSlice(ips)); err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
-	return oc.getRoutingExternalGWs(nsInfo), oc.getRoutingPodGWs(nsInfo), nil
+	return oc.getRoutingExternalGWs(nsInfo), oc.getRoutingPodGWs(nsInfo), nsInfo.hybridOverlayExternalGW, nil
 }
 
 func (oc *Controller) deletePodFromNamespace(ns string, portInfo *lpInfo) error {
@@ -186,13 +187,32 @@ func (oc *Controller) AddNamespace(ns *kapi.Namespace) {
 		klog.Infof("[%s] adding namespace took %v", ns.Name, time.Since(start))
 	}()
 
-	_, nsUnlock, err := oc.ensureNamespaceLocked(ns.Name, false, ns)
+	nsInfo, nsUnlock, err := oc.ensureNamespaceLocked(ns.Name, false, ns)
 	if err != nil {
 		klog.Errorf("Failed to ensure namespace locked: %v", err)
 		return
 	}
 
 	defer nsUnlock()
+
+	annotation := ns.Annotations[hotypes.HybridOverlayExternalGw]
+	if annotation != "" {
+		parsedAnnotation := net.ParseIP(annotation)
+		if parsedAnnotation == nil {
+			klog.Errorf("Could not parse hybrid overlay external gw annotation")
+		} else {
+			nsInfo.hybridOverlayExternalGW = parsedAnnotation
+		}
+	}
+	annotation = ns.Annotations[hotypes.HybridOverlayVTEP]
+	if annotation != "" {
+		parsedAnnotation := net.ParseIP(annotation)
+		if parsedAnnotation == nil {
+			klog.Errorf("Could not parse hybrid overlay VTEP annotation")
+		} else {
+			nsInfo.hybridOverlayVTEP = parsedAnnotation
+		}
+	}
 }
 
 // configureNamespace ensures internal structures are updated based on namespace
@@ -297,6 +317,7 @@ func (oc *Controller) updateNamespace(old, newer *kapi.Namespace) {
 			}
 		}
 	}
+
 	aclAnnotation := newer.Annotations[aclLoggingAnnotation]
 	oldACLAnnotation := old.Annotations[aclLoggingAnnotation]
 	// support for ACL logging update, if new annotation is empty, make sure we propagate new setting
@@ -309,6 +330,29 @@ func (oc *Controller) updateNamespace(old, newer *kapi.Namespace) {
 			klog.Infof("Namespace %s: ACL logging setting updated to deny=%s allow=%s",
 				old.Name, nsInfo.aclLogging.Deny, nsInfo.aclLogging.Allow)
 		}
+	}
+
+	annotation := newer.Annotations[hotypes.HybridOverlayExternalGw]
+	if annotation != "" {
+		parsedAnnotation := net.ParseIP(annotation)
+		if parsedAnnotation == nil {
+			klog.Errorf("Could not parse hybrid overlay external gw annotation")
+		} else {
+			nsInfo.hybridOverlayExternalGW = parsedAnnotation
+		}
+	} else {
+		nsInfo.hybridOverlayExternalGW = nil
+	}
+	annotation = newer.Annotations[hotypes.HybridOverlayVTEP]
+	if annotation != "" {
+		parsedAnnotation := net.ParseIP(annotation)
+		if parsedAnnotation == nil {
+			klog.Errorf("Could not parse hybrid overlay VTEP annotation")
+		} else {
+			nsInfo.hybridOverlayVTEP = parsedAnnotation
+		}
+	} else {
+		nsInfo.hybridOverlayVTEP = nil
 	}
 	oc.multicastUpdateNamespace(newer, nsInfo)
 }

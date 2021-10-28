@@ -168,6 +168,7 @@ func getNodePortLocalIPTRules(svcPort kapi.ServicePort, targetIP string, targetP
 	} else {
 		protocol = iptables.ProtocolIPv4
 	}
+
 	return []iptRule{
 		{
 			table: "nat",
@@ -239,7 +240,11 @@ func getLocalGatewayNATRules(ifname string, cidr *net.IPNet) []iptRule {
 	} else {
 		protocol = iptables.ProtocolIPv4
 	}
-	return []iptRule{
+	// OCP HACK: Block MCS Access. https://github.com/openshift/ovn-kubernetes/pull/170
+	rules := make([]iptRule, 0)
+	generateBlockMCSRules(&rules, protocol)
+	// END OCP HACK
+	return append(rules, []iptRule{
 		{
 			table: "filter",
 			chain: "FORWARD",
@@ -278,7 +283,7 @@ func getLocalGatewayNATRules(ifname string, cidr *net.IPNet) []iptRule {
 			},
 			protocol: protocol,
 		},
-	}
+	}...)
 }
 
 // initLocalGatewayNATRules sets up iptables rules for interfaces
@@ -375,6 +380,7 @@ func getGatewayIPTRules(service *kapi.Service, hasLocalHostEndpoint bool) []iptR
 				for _, clusterIP := range clusterIPs {
 					rules = append(rules, getNodePortIPTRules(svcPort, clusterIP, svcPort.Port)...)
 				}
+				// (astoycos) TODO remove me with LGW fix
 			} else {
 				// Port redirect host -> Nodeport -> host traffic directly to endpoint
 				for _, clusterIP := range clusterIPs {

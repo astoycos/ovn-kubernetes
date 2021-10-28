@@ -724,7 +724,7 @@ func localNetInterfaceTest(app *cli.App, testNS ns.NetNS,
 */
 
 func expectedIPTablesRules(gatewayIP string) map[string]util.FakeTable {
-	return map[string]util.FakeTable{
+	table := map[string]util.FakeTable{
 		"filter": {
 			"INPUT": []string{
 				"-i " + localnetGatewayNextHopPort + " -m comment --comment from OVN to localhost -j ACCEPT",
@@ -746,6 +746,19 @@ func expectedIPTablesRules(gatewayIP string) map[string]util.FakeTable {
 			"OVN-KUBE-EXTERNALIP": []string{},
 		},
 	}
+
+	// OCP HACK: Block MCS Access. https://github.com/openshift/ovn-kubernetes/pull/170
+	table["filter"]["FORWARD"] = append(table["filter"]["FORWARD"],
+		"-p tcp -m tcp --dport 22624 --syn -j REJECT",
+		"-p tcp -m tcp --dport 22623 --syn -j REJECT",
+	)
+	table["filter"]["OUTPUT"] = append(table["filter"]["OUTPUT"],
+		"-p tcp -m tcp --dport 22624 --syn -j REJECT",
+		"-p tcp -m tcp --dport 22623 --syn -j REJECT",
+	)
+	// END OCP HACK
+
+	return table
 }
 
 var _ = Describe("Gateway Init Operations", func() {
