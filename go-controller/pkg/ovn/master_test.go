@@ -64,6 +64,7 @@ type tNode struct {
 	DnatSnatIP           string
 }
 
+/*
 func cleanupGateway(fexec *ovntest.FakeExec, nodeName string, nodeSubnet string, clusterCIDR string, nextHop string) {
 	const (
 		node1RouteUUID    string = "0cac12cf-3e0f-4682-b028-5ea2e0001962"
@@ -88,7 +89,6 @@ func cleanupGateway(fexec *ovntest.FakeExec, nodeName string, nodeSubnet string,
 	})
 }
 
-/*
 func defaultFakeExec(nodeSubnet, nodeName string, sctpSupport bool) *ovntest.FakeExec {
 	const (
 		mgmtMAC string = "01:02:03:04:05:06"
@@ -891,11 +891,7 @@ var _ = ginkgo.Describe("Gateway Init Operations", func() {
 				EgressFirewallClient: egressFirewallFakeClient,
 			}
 
-			fexec := ovntest.NewLooseCompareFakeExec()
-			err := util.SetExec(fexec)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-			_, err = config.InitConfig(ctx, fexec, nil)
+			_, err := config.InitConfig(ctx, nil, nil)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			config.Kubernetes.HostNetworkNamespace = ""
 			nodeAnnotator := kube.NewNodeAnnotator(&kube.Kube{kubeFakeClient, egressIPFakeClient, egressFirewallFakeClient}, testNode.Name)
@@ -1016,9 +1012,6 @@ var _ = ginkgo.Describe("Gateway Init Operations", func() {
 			expectedDatabaseState = generateGatewayInitExpectedNB(expectedDatabaseState, expectedOVNClusterRouter, expectedNodeSwitch, node1.Name, clusterSubnets, []*net.IPNet{subnet}, l3Config, []*net.IPNet{joinLRPIPs}, []*net.IPNet{dLRPIPs}, skipSnat, node1.NodeMgmtPortIP)
 			gomega.Eventually(libovsdbOvnNBClient).Should(libovsdbtest.HaveData(expectedDatabaseState))
 
-			// Make sure remaining fexec calls are still correct
-			gomega.Expect(fexec.CalledMatchesExpected()).To(gomega.BeTrue(), fexec.ErrorDesc)
-
 			return nil
 		}
 
@@ -1082,11 +1075,7 @@ var _ = ginkgo.Describe("Gateway Init Operations", func() {
 				EgressFirewallClient: egressFirewallFakeClient,
 			}
 
-			fexec := ovntest.NewLooseCompareFakeExec()
-			err := util.SetExec(fexec)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-			_, err = config.InitConfig(ctx, fexec, nil)
+			_, err := config.InitConfig(ctx, nil, nil)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			config.Kubernetes.HostNetworkNamespace = ""
 			nodeAnnotator := kube.NewNodeAnnotator(&kube.Kube{kubeFakeClient, egressIPFakeClient, egressFirewallFakeClient}, testNode.Name)
