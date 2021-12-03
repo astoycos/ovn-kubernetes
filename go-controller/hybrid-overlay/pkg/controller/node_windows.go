@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"net"
 
+	libovsdbclient "github.com/ovn-org/libovsdb/client"
+
 	"github.com/ovn-org/ovn-kubernetes/go-controller/hybrid-overlay/pkg/types"
 	houtil "github.com/ovn-org/ovn-kubernetes/go-controller/hybrid-overlay/pkg/util"
 	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/config"
@@ -31,6 +33,7 @@ type NodeController struct {
 	localNodeCIDR   *net.IPNet
 	localNodeIP     net.IP
 	remoteSubnetMap map[string]string // Maps a remote node to its remote subnet
+	nbClient        libovsdbclient.Client
 }
 
 // newNodeController returns a node handler that listens for node events
@@ -38,6 +41,7 @@ type NodeController struct {
 func newNodeController(kube kube.Interface,
 	nodeName string,
 	nodeLister listers.NodeLister,
+	nbClient libovsdbclient.Client,
 ) (nodeController, error) {
 	supportedFeatures := hcn.GetSupportedFeatures()
 	if !supportedFeatures.HostRoute {
