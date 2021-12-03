@@ -90,6 +90,7 @@ func FindSwitchesWithOtherConfig(nbClient libovsdbclient.Client) ([]nbdb.Logical
 	return switches, nil
 }
 
+// FindPerNodeJoinSwitches finds the legacy join switches when they were deployed per node
 func FindPerNodeJoinSwitches(nbClient libovsdbclient.Client) ([]nbdb.LogicalSwitch, error) {
 	// Get the legacy node join switches -> join_<NodeName>
 	joinSwitchSearch := func(item *nbdb.LogicalSwitch) bool {
@@ -97,6 +98,18 @@ func FindPerNodeJoinSwitches(nbClient libovsdbclient.Client) ([]nbdb.LogicalSwit
 	}
 
 	switches, err := findSwitchesByPredicate(nbClient, joinSwitchSearch)
+	if err != nil {
+		return nil, err
+	}
+
+	return switches, nil
+}
+
+// FindSwitchesByName returns switches that have the provided name
+func FindSwitchesByName(nbClient libovsdbclient.Client, switchName string) ([]nbdb.LogicalSwitch, error) {
+	nameSearch := func(item *nbdb.LogicalSwitch) bool { return item.Name == switchName }
+
+	switches, err := findSwitchesByPredicate(nbClient, nameSearch)
 	if err != nil {
 		return nil, err
 	}
