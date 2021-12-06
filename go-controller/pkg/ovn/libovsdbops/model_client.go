@@ -4,8 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/types"
 	"reflect"
+
+	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/types"
 
 	"github.com/ovn-org/libovsdb/client"
 	"github.com/ovn-org/libovsdb/model"
@@ -219,6 +220,7 @@ func (m *ModelClient) buildOps(doWhenFound opModelToOpMapper, doWhenNotFound opM
 			if err := m.client.WhereCache(opModel.ModelPredicate).List(ctx, opModel.ExistingResult); err != nil {
 				return nil, nil, fmt.Errorf("unable to list items for model, err: %v", err)
 			}
+			fmt.Printf("RESULT %v", opModel.ExistingResult)
 		} else if opModel.Model != nil {
 			_, err := m.get(&opModel)
 			if err != nil && !errors.Is(err, client.ErrNotFound) {
