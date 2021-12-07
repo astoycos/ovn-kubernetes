@@ -101,6 +101,8 @@ func NewSBClientWithConfig(cfg config.OvnAuthConfig, stopCh <-chan struct{}) (cl
 			client.WithTable(&sbdb.SBGlobal{}),
 			// used in ovnkube-node
 			client.WithTable(&sbdb.Encap{}),
+			// used in ovnkube-master
+			client.WithTable(&sbdb.IGMPGroup{}),
 		),
 	)
 	if err != nil {

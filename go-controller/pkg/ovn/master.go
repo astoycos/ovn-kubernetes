@@ -255,12 +255,11 @@ func (oc *Controller) StartClusterMaster(masterNodeName string) error {
 	// update metrics for host subnets
 	metrics.RecordSubnetCount(v4HostSubnetCount, v6HostSubnetCount)
 
-	if oc.multicastSupport {
-		if _, _, err := util.RunOVNSbctl("--columns=_uuid", "list", "IGMP_Group"); err != nil {
-			klog.Warningf("Multicast support enabled, however version of OVN in use does not support IGMP Group. " +
-				"Disabling Multicast Support")
-			oc.multicastSupport = false
-		}
+	if oc.multicastSupport && !libovsdbops.CheckExistenceofIGMPGroup(oc.sbClient) {
+		klog.Warningf("Multicast support enabled, however version of OVN in use does not support IGMP Group. " +
+			"Disabling Multicast Support")
+		oc.multicastSupport = false
+
 	}
 
 	meterFairness := true
