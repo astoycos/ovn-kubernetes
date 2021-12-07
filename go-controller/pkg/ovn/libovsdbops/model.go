@@ -51,6 +51,8 @@ func getUUID(model model.Model) string {
 		return t.UUID
 	case *sbdb.Encap:
 		return t.UUID
+	case *sbdb.ControllerEvent:
+		return t.UUID
 	default:
 		panic(fmt.Sprintf("getUUID: unknown model %T", t))
 	}
@@ -97,6 +99,8 @@ func setUUID(model model.Model, uuid string) {
 	case *sbdb.MACBinding:
 		t.UUID = uuid
 	case *sbdb.Encap:
+		t.UUID = uuid
+	case *sbdb.ControllerEvent:
 		t.UUID = uuid
 	default:
 		panic(fmt.Sprintf("setUUID: unknown model %T", t))
@@ -199,6 +203,10 @@ func copyIndexes(model model.Model) model.Model {
 			Type: t.Type,
 			IP:   t.IP,
 		}
+	case *sbdb.ControllerEvent:
+		return &sbdb.ControllerEvent{
+			UUID: t.UUID,
+		}
 	default:
 		panic(fmt.Sprintf("copyIndexes: unknown model %T", t))
 	}
@@ -246,6 +254,8 @@ func getListFromModel(model model.Model) interface{} {
 		return &[]sbdb.MACBinding{}
 	case *sbdb.Encap:
 		return &[]sbdb.Encap{}
+	case *sbdb.ControllerEvent:
+		return &[]sbdb.ControllerEvent{}
 	default:
 		panic(fmt.Sprintf("getModelList: unknown model %T", t))
 	}
