@@ -2,7 +2,6 @@ package util
 
 import (
 	"bytes"
-	"encoding/csv"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -13,7 +12,6 @@ import (
 	"strings"
 	"sync/atomic"
 	"time"
-	"unicode"
 
 	"github.com/pkg/errors"
 
@@ -513,96 +511,6 @@ func getNbOVSDBArgs(command string, args ...string) []string {
 	return cmdArgs
 }
 
-// RunOVNNbctlUnix runs command via ovn-nbctl, with ovn-nbctl using the unix
-// domain sockets to connect to the ovsdb-server backing the OVN NB database.
-func RunOVNNbctlUnix(args ...string) (string, string, error) {
-	cmdArgs := []string{fmt.Sprintf("--timeout=%d", ovsCommandTimeout)}
-	cmdArgs = append(cmdArgs, args...)
-	stdout, stderr, err := runOVNretry(runner.nbctlPath, nil, cmdArgs...)
-	return strings.Trim(strings.TrimFunc(stdout.String(), unicode.IsSpace), "\""),
-		stderr.String(), err
-}
-
-// RunOVNNbctlWithTimeout runs command via ovn-nbctl with a specific timeout
-func RunOVNNbctlWithTimeout(timeout int, args ...string) (string, string, error) {
-	stdout, stderr, err := RunOVNNbctlRawOutput(timeout, args...)
-	return strings.Trim(strings.TrimSpace(stdout), "\""), stderr, err
-}
-
-// RunOVNNbctlRawOutput returns the output with no trimming or other string manipulation
-func RunOVNNbctlRawOutput(timeout int, args ...string) (string, string, error) {
-	cmdArgs, envVars := getNbctlArgsAndEnv(timeout, args...)
-	start := time.Now()
-	stdout, stderr, err := runOVNretry(runner.nbctlPath, envVars, cmdArgs...)
-	if MetricOvnCliLatency != nil {
-		MetricOvnCliLatency.WithLabelValues("ovn-nbctl").Observe(time.Since(start).Seconds())
-	}
-	return stdout.String(), stderr.String(), err
-}
-
-// RunOVNNbctlCSV runs an nbctl command that results in CSV output, parses the rows returned,
-// and returns the records
-func RunOVNNbctlCSV(args []string) ([][]string, error) {
-	args = append([]string{"--no-heading", "--format=csv"}, args...)
-
-	stdout, _, err := RunOVNNbctlRawOutput(15, args...)
-	if err != nil {
-		return nil, err
-	}
-	if len(stdout) == 0 {
-		return nil, nil
-	}
-
-	r := csv.NewReader(strings.NewReader(stdout))
-	records, err := r.ReadAll()
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse nbctl CSV response: %w", err)
-	}
-	return records, nil
-}
-
-// RunOVNNbctl runs a command via ovn-nbctl.
-func RunOVNNbctl(args ...string) (string, string, error) {
-	return RunOVNNbctlWithTimeout(ovsCommandTimeout, args...)
-}
-
-// RunOVNSbctlUnix runs command via ovn-sbctl, with ovn-sbctl using the unix
-// domain sockets to connect to the ovsdb-server backing the OVN SB database.
-func RunOVNSbctlUnix(args ...string) (string, string, error) {
-	cmdArgs := []string{fmt.Sprintf("--timeout=%d", ovsCommandTimeout)}
-	cmdArgs = append(cmdArgs, args...)
-	stdout, stderr, err := runOVNretry(runner.sbctlPath, nil, cmdArgs...)
-	return strings.Trim(strings.TrimFunc(stdout.String(), unicode.IsSpace), "\""),
-		stderr.String(), err
-}
-
-// RunOVNSbctlWithTimeout runs command via ovn-sbctl with a specific timeout
-func RunOVNSbctlWithTimeout(timeout int, args ...string) (string, string,
-	error) {
-	var cmdArgs []string
-	if config.OvnSouth.Scheme == config.OvnDBSchemeSSL {
-		cmdArgs = []string{
-			fmt.Sprintf("--private-key=%s", config.OvnSouth.PrivKey),
-			fmt.Sprintf("--certificate=%s", config.OvnSouth.Cert),
-			fmt.Sprintf("--bootstrap-ca-cert=%s", config.OvnSouth.CACert),
-			fmt.Sprintf("--db=%s", config.OvnSouth.GetURL()),
-		}
-	} else if config.OvnSouth.Scheme == config.OvnDBSchemeTCP {
-		cmdArgs = []string{
-			fmt.Sprintf("--db=%s", config.OvnSouth.GetURL()),
-		}
-	}
-
-	cmdArgs = append(cmdArgs, fmt.Sprintf("--timeout=%d", timeout))
-	cmdArgs = append(cmdArgs, args...)
-	start := time.Now()
-	stdout, stderr, err := runOVNretry(runner.sbctlPath, nil, cmdArgs...)
-	if MetricOvnCliLatency != nil {
-		MetricOvnCliLatency.WithLabelValues("ovn-sbctl").Observe(time.Since(start).Seconds())
-	}
-	return strings.Trim(strings.TrimSpace(stdout.String()), "\""), stderr.String(), err
-}
-
 // RunOVSDBClient runs an 'ovsdb-client [OPTIONS] COMMAND [ARG...] command'.
 func RunOVSDBClient(args ...string) (string, string, error) {
 	stdout, stderr, err := runOVNretry(runner.ovsdbClientPath, nil, args...)
@@ -620,11 +528,6 @@ func RunOVSDBClientOVNNB(command string, args ...string) (string, string, error)
 	cmdArgs := getNbOVSDBArgs(command, args...)
 	stdout, stderr, err := runOVNretry(runner.ovsdbClientPath, nil, cmdArgs...)
 	return strings.Trim(strings.TrimSpace(stdout.String()), "\""), stderr.String(), err
-}
-
-// RunOVNSbctl runs a command via ovn-sbctl.
-func RunOVNSbctl(args ...string) (string, string, error) {
-	return RunOVNSbctlWithTimeout(ovsCommandTimeout, args...)
 }
 
 // RunOVNCtl runs an ovn-ctl command.
@@ -887,82 +790,6 @@ func DetectSCTPSupport() (bool, error) {
 		}
 	}
 	return false, nil
-}
-
-// NBTxn hold parts of an ovn-nbctl transaction request
-type NBTxn struct {
-	args    []string
-	txnArgs []string
-	env     []string
-}
-
-// NewNBTxn returns a new ovn-nbctl transaction request object
-func NewNBTxn() *NBTxn {
-	args, env := getNbctlArgsAndEnv(ovsCommandTimeout, []string{}...)
-	return &NBTxn{
-		args: args,
-		env:  env,
-	}
-}
-
-// Add adds a new request to the transaction
-func (t *NBTxn) add(args ...string) {
-	if len(t.txnArgs) > 0 {
-		t.txnArgs = append(t.txnArgs, "--")
-	}
-	t.txnArgs = append(t.txnArgs, args...)
-}
-
-// Commit commits all parts of the transaction and returns output and errors
-func (t *NBTxn) Commit() (string, string, error) {
-	if len(t.txnArgs) == 0 {
-		return "", "", nil
-	}
-	allArgs := append(t.args, t.txnArgs...)
-	stdout, stderr, err := runOVNretry(runner.nbctlPath, t.env, allArgs...)
-	return strings.Trim(strings.TrimSpace(stdout.String()), "\""), stderr.String(), err
-}
-
-// AddOrCommit adds a slice of requests to a transaction
-// If the incoming slice to be added would be greater than the maximum
-// number of arguments for a transaction; the transaction is committed
-// and the current transactions arguments are reset to the slice
-// Note: This method should be called once with a slice of dependent args
-// For example, using create --id=@acl with dependent add to switch cmds
-// should all be added in a single AddOrCommit call
-// The caller should take care not to overload the call with a too large
-// slice exceeding max args, or the command can never be committed
-func (t *NBTxn) AddOrCommit(args []string) (string, string, error) {
-	if len(args) > maxArgs {
-		return "", "", MaxArgsError
-	}
-	// assume a 10 argument buffer for other arguments by default added to the nbctl call
-	buffer := 10
-	incomingLength := len(args)
-	if len(t.txnArgs) > 0 {
-		// increment for --
-		incomingLength += 1
-	}
-
-	klog.V(5).Infof("Number of args: %d, txnArgs: %d, incomingLen: %d, buffer: %d", len(t.args),
-		len(t.txnArgs), incomingLength, buffer)
-
-	// case where we are going to exceed max arguments
-	// also check entire line length is going be over 100k
-	// maximum bash command seems to be a combination of max args and length of each argument
-	// maximum length is PAGE_SIZE * 32 which we can assume to be 4k page, and equals 131072
-	if len(t.args)+len(t.txnArgs)+incomingLength+buffer > maxArgs || len(strings.Join(t.args, " "))+
-		len(strings.Join(t.txnArgs, " "))+len(strings.Join(args, " ")) > 100000 {
-		klog.Info("Requested transaction add is too large, committing...")
-		if stdout, stderr, err := t.Commit(); err != nil {
-			return stdout, stderr, err
-		}
-		// reset txnArgs
-		t.txnArgs = []string{}
-	}
-
-	t.add(args...)
-	return "", "", nil
 }
 
 // DetectCheckPktLengthSupport checks if OVN supports check packet length action in OVS kernel datapath
