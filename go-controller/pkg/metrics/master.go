@@ -224,10 +224,10 @@ func RegisterMasterMetrics(sbClient client.Client) {
 			prometheus.CounterOpts{
 				Namespace: MetricOvnkubeNamespace,
 				Subsystem: MetricOvnkubeSubsystemMaster,
-				Name:      "skipped_nbctl_daemon_total",
-				Help:      "The number of times we skipped using ovn-nbctl daemon and directly interacted with OVN NB DB",
+				Name:      "nbctl_calls_total",
+				Help:      "The number of times we used nbctl instead of libovsdb to interact with the OVN NB DB, this should be zero in the master process",
 			}, func() float64 {
-				return float64(util.SkippedNbctlDaemonCounter)
+				return float64(util.NbctlCounter)
 			}))
 		prometheus.MustRegister(MetricMasterReadyDuration)
 		prometheus.MustRegister(metricOvnCliLatency)

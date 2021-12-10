@@ -183,8 +183,10 @@ jobs:
       run: |
         docker load --input image-master.tar
 
-    - name: Check out code into the Go module directory - from PR branch
+    - name: Check out code into the Go module directory - from Master branch
       uses: actions/checkout@v2
+      with: 
+          ref: master
 
     - name: kind setup
       run: |
@@ -216,6 +218,9 @@ jobs:
     - name: Load docker image
       run: |
         docker load --input image-pr.tar
+    
+    - name: Check out code into the Go module directory - from PR branch
+      uses: actions/checkout@v2
 
     - name: ovn upgrade
       run: |
