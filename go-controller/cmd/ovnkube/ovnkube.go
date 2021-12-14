@@ -243,6 +243,10 @@ func runOvnKube(ctx *cli.Context) error {
 		// since we capture some metrics in Start()
 		metrics.RegisterMasterMetrics(libovsdbOvnSBClient)
 
+		// These metrics will only run on nodes
+		// with running OVN DBs, i.e the master nodes
+		metrics.RegisterOvnMetrics(ovnClientset.KubeClient, node, libovsdbOvnNBClient, libovsdbOvnSBClient)
+
 		ovnController := ovn.NewOvnController(ovnClientset, masterWatchFactory, stopChan, nil,
 			libovsdbOvnNBClient, libovsdbOvnSBClient, util.EventRecorder(ovnClientset.KubeClient))
 		if err := ovnController.Start(master, wg, ctx.Context); err != nil {
@@ -286,7 +290,6 @@ func runOvnKube(ctx *cli.Context) error {
 	// start the prometheus server to serve OVN Metrics (default port: 9476)
 	// Note: for ovnkube node mode dpu-host no ovn metrics is required as ovn is not running on the node.
 	if config.OvnKubeNode.Mode != types.NodeModeDPUHost && config.Kubernetes.OVNMetricsBindAddress != "" {
-		metrics.RegisterOvnMetrics(ovnClientset.KubeClient, node)
 		metrics.StartOVNMetricsServer(config.Kubernetes.OVNMetricsBindAddress)
 	}
 
