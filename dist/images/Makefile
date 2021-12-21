@@ -42,7 +42,7 @@ centos: bld
 	./daemonset.sh --image=docker.io/ovnkube/ovn-daemonset:latest
 
 fedora: bld
-	${OCI_BIN} build -t ovn-kube-f -f Dockerfile.fedora .
+	${OCI_BIN} build -t ovn-kube-f -f Dockerfile.fedora ../../
 	# ${OCI_BIN} login -u ovnkube docker.io/ovnkube
 	# ${OCI_BIN} push docker.io/ovnkube/ovn-daemonset-f:latest
 	./daemonset.sh --image=docker.io/ovnkube/ovn-daemonset-f:latest
