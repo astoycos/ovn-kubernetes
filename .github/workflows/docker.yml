@@ -9,7 +9,7 @@ on:
 env:
   GO_VERSION: 1.16.3
   REGISTRY: ghcr.io 
-  OWNER: ovn-org
+  OWNER: astoycos
   REPOSITORY: ovn-kubernetes 
   FEDORA_IMAGE_NAME: ovn-kube-f
   UBUNTU_IMAGE_NAME: ovn-kube-u
@@ -81,12 +81,23 @@ jobs:
       with:
         images: ${{ env.REGISTRY }}/${{ env.OWNER }}/${{ env.REPOSITORY }}/${{ env.UBUNTU_IMAGE_NAME }}
 
+    - name: Set up QEMU
+        uses: docker/setup-qemu-action@master
+        with:
+          platforms: all
+
+    - name: Set up Docker Buildx
+      id: buildx
+      uses: docker/setup-buildx-action@master
+      
     - name: Build and push Ubuntu based Docker image
       uses: docker/build-push-action@ad44023a93711e3deb337508980b4b5e9bcdc5dc
       with:
+        builder: ${{ steps.buildx.outputs.name }}
         context: ./dist/images
         file: ./dist/images/Dockerfile.ubuntu
         push: true
+        platforms: linux/amd64,linux/arm64
         tags: ${{ steps.meta-ubuntu.outputs.tags }}
         labels: ${{ steps.meta-ubuntu.outputs.labels }}
 
@@ -95,7 +106,7 @@ jobs:
       uses: docker/metadata-action@98669ae865ea3cffbcbaa878cf57c20bbf1c6c38
       with:
         images: ${{ env.REGISTRY }}/${{ env.OWNER }}/${{ env.REPOSITORY }}/${{ env.CENTOS_IMAGE_NAME }}
-
+    
     - name: Build and push Centos based Docker image
       uses: docker/build-push-action@ad44023a93711e3deb337508980b4b5e9bcdc5dc
       with:
