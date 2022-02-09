@@ -9,7 +9,7 @@ on:
 env:
   GO_VERSION: 1.16.3
   REGISTRY: ghcr.io 
-  OWNER: ovn-org
+  OWNER: astoycos
   REPOSITORY: ovn-kubernetes 
   FEDORA_IMAGE_NAME: ovn-kube-f
   UBUNTU_IMAGE_NAME: ovn-kube-u
@@ -42,7 +42,7 @@ jobs:
         echo "GOPATH=$GOPATH" >> $GITHUB_ENV
         echo "$GOPATH/bin" >> $GITHUB_PATH
 
-    - name: build ovnkube-binaries copy to context 
+    - name: Build ovnkube-binaries copy to context 
       run: | 
         pushd go-controller 
          make 
@@ -52,35 +52,14 @@ jobs:
           cp -r ../../go-controller/_output/go/bin/* .
         popd 
     
-    - name: generate git-info to write to image
+    - name: Generate git-info to write to image
       run: | 
         BRANCH=$(git rev-parse --short "$GITHUB_SHA")
-        COMMIT=${GITHUB_REF#refs/heads/}
+        COMMIT=$(git rev-parse  HEAD)
         pushd dist/images
           echo "ref: ${BRANCH}  commit: ${COMMIT}" > git_info
         popd 
     
-    - name: Extract metadata (tags, labels) for fedora ovn-k image
-      id: meta-fedora
-      uses: docker/metadata-action@98669ae865ea3cffbcbaa878cf57c20bbf1c6c38
-      with:
-        images: ${{ env.REGISTRY }}/${{ env.OWNER }}/${{ env.REPOSITORY }}/${{ env.FEDORA_IMAGE_NAME }}
-
-    - name: Build and push Fedora based Docker image
-      uses: docker/build-push-action@ad44023a93711e3deb337508980b4b5e9bcdc5dc
-      with:
-        context: ./dist/images
-        file: ./dist/images/Dockerfile.fedora
-        push: true
-        tags: ${{ steps.meta-fedora.outputs.tags }}
-        labels: ${{ steps.meta-fedora.outputs.labels }}
-
-    - name: Extract metadata (tags, labels) for ubuntu ovn-k image
-      id: meta-ubuntu
-      uses: docker/metadata-action@98669ae865ea3cffbcbaa878cf57c20bbf1c6c38
-      with:
-        images: ${{ env.REGISTRY }}/${{ env.OWNER }}/${{ env.REPOSITORY }}/${{ env.UBUNTU_IMAGE_NAME }}
-
     - name: Set up QEMU
       uses: docker/setup-qemu-action@master
       with:
@@ -90,6 +69,29 @@ jobs:
       id: buildx
       uses: docker/setup-buildx-action@master
       
+    - name: Extract metadata (tags, labels) for fedora ovn-k image
+      id: meta-fedora
+      uses: docker/metadata-action@98669ae865ea3cffbcbaa878cf57c20bbf1c6c38
+      with:
+        images: ${{ env.REGISTRY }}/${{ env.OWNER }}/${{ env.REPOSITORY }}/${{ env.FEDORA_IMAGE_NAME }}
+
+    - name: Build and push Fedora based Docker image
+      uses: docker/build-push-action@ad44023a93711e3deb337508980b4b5e9bcdc5dc
+      with:
+        builder: ${{ steps.buildx.outputs.name }}
+        context: ./dist/images
+        file: ./dist/images/Dockerfile.fedora
+        push: true
+        platforms: linux/amd64,linux/arm64
+        tags: ${{ steps.meta-fedora.outputs.tags }}
+        labels: ${{ steps.meta-fedora.outputs.labels }}
+
+    - name: Extract metadata (tags, labels) for ubuntu ovn-k image
+      id: meta-ubuntu
+      uses: docker/metadata-action@98669ae865ea3cffbcbaa878cf57c20bbf1c6c38
+      with:
+        images: ${{ env.REGISTRY }}/${{ env.OWNER }}/${{ env.REPOSITORY }}/${{ env.UBUNTU_IMAGE_NAME }}
+
     - name: Build and push Ubuntu based Docker image
       uses: docker/build-push-action@ad44023a93711e3deb337508980b4b5e9bcdc5dc
       with:
@@ -110,10 +112,10 @@ jobs:
     - name: Build and push Centos based Docker image
       uses: docker/build-push-action@ad44023a93711e3deb337508980b4b5e9bcdc5dc
       with:
+        builder: ${{ steps.buildx.outputs.name }}
         context: ./dist/images
         file: ./dist/images/Dockerfile
         push: true
+        platforms: linux/amd64,linux/arm64
         tags: ${{ steps.meta-centos.outputs.tags }}
         labels: ${{ steps.meta-centos.outputs.labels }}
-
-    
