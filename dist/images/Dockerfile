@@ -8,25 +8,29 @@
 # This is for a development build where the ovn-kubernetes utilities
 # are built in this Dockerfile and included in the image (instead of the rpm)
 #
-# This is based on centos:7
+# This is based on centos:8
 # openvswitch rpms are from
 # http://cbs.centos.org/kojifiles/packages/openvswitch/2.9.0/4.el7/x86_64/
 #
 # So this file will change over time.
 
-FROM centos:7
+FROM centos:8
 
 USER root
 
 ENV PYTHONDONTWRITEBYTECODE yes
 
+# Hack around https://www.centos.org/centos-linux-eol/ and the move to centos-stream
+RUN sed -i 's/mirrorlist/#mirrorlist/g' /etc/yum.repos.d/CentOS-Linux-* && \
+	sed -i 's|#baseurl=http://mirror.centos.org|baseurl=http://vault.centos.org|g' /etc/yum.repos.d/CentOS-Linux-*
+
 COPY kubernetes.repo /etc/yum.repos.d/kubernetes.repo
 RUN INSTALL_PKGS=" \
-	PyYAML bind-utils procps-ng openssl numactl-libs firewalld-filesystem \
+	python3-pyyaml bind-utils procps-ng openssl numactl-libs firewalld-filesystem \
 	libpcap kubectl \
 	iproute iputils strace socat \
-	unbound-libs \
-        " && \
+	unbound-libs pkgconfig \
+       " && \
 	yum install -y --setopt=tsflags=nodocs --setopt=skip_missing_names_on_install=False $INSTALL_PKGS
 
 RUN yum -y update && yum clean all && rm -rf /var/cache/yum/*
@@ -35,19 +39,22 @@ RUN yum -y update && yum clean all && rm -rf /var/cache/yum/*
 # docker build --build-arg rpmArch=ARCH -f Dockerfile.centos -t some_tag .
 # where ARCH can be x86_64 (default), aarch64, or ppc64le
 ARG rpmArch=x86_64
-ARG ovsVer=2.11.0
-ARG ovsSubVer=4.el7
+ARG ovsVer=2.12.0
+ARG ovsSubVer=1.1.el8
 ARG dpdkVer=18.11.2
 ARG dpdkSubVer=1.el7
-ARG dpdkRpmUrl=http://mirror.centos.org/centos/7/extras/${rpmArch}/Packages/dpdk-${dpdkVer}-${dpdkSubVer}.${rpmArch}.rpm
+ 
+# Automatically populated when using docker buildx
+ARG TARGETPLATFORM
 
-RUN if [ "$(uname -m)" = "aarch64" ]; then dpdkRpmUrl=http://mirror.centos.org/altarch/7/extras/aarch64/Packages/dpdk-${dpdkVer}-${dpdkSubVer}.${rpmArch}.rpm; fi && rpm -i ${dpdkRpmUrl}
-RUN rpm -i http://cbs.centos.org/kojifiles/packages/openvswitch/${ovsVer}/${ovsSubVer}/${rpmArch}/openvswitch-${ovsVer}-${ovsSubVer}.${rpmArch}.rpm
-RUN rpm -i http://cbs.centos.org/kojifiles/packages/openvswitch/${ovsVer}/${ovsSubVer}/${rpmArch}/openvswitch-ovn-common-${ovsVer}-${ovsSubVer}.${rpmArch}.rpm
-RUN rpm -i http://cbs.centos.org/kojifiles/packages/openvswitch/${ovsVer}/${ovsSubVer}/${rpmArch}/openvswitch-ovn-central-${ovsVer}-${ovsSubVer}.${rpmArch}.rpm
-RUN rpm -i http://cbs.centos.org/kojifiles/packages/openvswitch/${ovsVer}/${ovsSubVer}/${rpmArch}/openvswitch-ovn-host-${ovsVer}-${ovsSubVer}.${rpmArch}.rpm
-RUN rpm -i http://cbs.centos.org/kojifiles/packages/openvswitch/${ovsVer}/${ovsSubVer}/${rpmArch}/openvswitch-ovn-vtep-${ovsVer}-${ovsSubVer}.${rpmArch}.rpm
-RUN rpm -i http://cbs.centos.org/kojifiles/packages/openvswitch/${ovsVer}/${ovsSubVer}/${rpmArch}/openvswitch-devel-${ovsVer}-${ovsSubVer}.${rpmArch}.rpm
+RUN echo "using ${TARGETPLATFORM}" 
+
+# Build arm images if build platform arch OR target plaform arch is arm64
+RUN if [ "$(uname -m)" = "aarch64" ] || [ "${TARGETPLATFORM}" = "linux/arm64" ]; then rpmArch=aarch64 && yum -y install libatomic ; fi && \
+	echo "rpmArch is ${rpmArch}" && \
+	rpm -i http://cbs.centos.org/kojifiles/packages/openvswitch/${ovsVer}/${ovsSubVer}/${rpmArch}/openvswitch-${ovsVer}-${ovsSubVer}.${rpmArch}.rpm && \
+	rpm -i http://cbs.centos.org/kojifiles/packages/openvswitch/${ovsVer}/${ovsSubVer}/${rpmArch}/openvswitch-devel-${ovsVer}-${ovsSubVer}.${rpmArch}.rpm
+
 RUN rm -rf /var/cache/yum
 
 RUN mkdir -p /var/run/openvswitch
