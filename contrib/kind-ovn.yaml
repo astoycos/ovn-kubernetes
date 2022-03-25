@@ -1,0 +1,49 @@
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+networking:
+  # kube proxy will be disabled
+  kubeProxyMode: "none"
+  # the default CNI will not be installed
+  disableDefaultCNI: true
+  podSubnet: "10.244.0.0/16,fd00:10:244::/48"
+  serviceSubnet: "10.96.0.0/16,fd00:10:96::/112"
+  ipFamily: dual
+featureGates:
+  IPv6DualStack: true
+kubeadmConfigPatches:
+- |
+  kind: ClusterConfiguration
+  metadata:
+    name: config
+  apiServer:
+    extraArgs:
+      "v": "4"
+  controllerManager:
+    extraArgs:
+      "v": "4"
+  scheduler:
+    extraArgs:
+      "v": "4"
+  networking: 
+    dnsDomain: cluster.local
+  ---
+  kind: InitConfiguration
+  nodeRegistration:
+    kubeletExtraArgs:
+      "v": "4"
+  ---
+  kind: JoinConfiguration
+  nodeRegistration:
+    kubeletExtraArgs:
+      "v": "4"
+nodes:
+ - role: control-plane
+   kubeadmConfigPatches:
+   - |
+     kind: InitConfiguration
+     nodeRegistration:
+       kubeletExtraArgs:
+         node-labels: "ingress-ready=true"
+         authorization-mode: "AlwaysAllow"
+ - role: worker
+ - role: worker
