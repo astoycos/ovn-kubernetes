@@ -49,7 +49,6 @@ jobs:
         version: v1.33.2
         working-directory: go-controller
         args: --modules-download-mode=vendor --timeout=15m0s --verbose
-  # only build master image if pull from ghcr.io/ovn-org/ovn-kubernetes/ovn-kube-f:master fails
   build-master:
     name: Build-master
     runs-on: ubuntu-latest
@@ -75,16 +74,20 @@ jobs:
             cp ${CI_IMAGE_CACHE}/${CI_IMAGE_MASTER_TAR}.gz ${CI_DIST_IMAGES_OUTPUT}/${CI_IMAGE_MASTER_TAR}.gz
             gunzip ${CI_DIST_IMAGES_OUTPUT}/${CI_IMAGE_MASTER_TAR}.gz
             echo "::set-output name=MASTER_IMAGE_RESTORED::true"
-        else 
+            return
+        fi 
+
+        if docker pull ghcr.io/ovn-org/ovn-kubernetes/ovn-kube-f:master; then 
             mkdir -p ${CI_IMAGE_CACHE}
-            docker pull ghcr.io/ovn-org/ovn-kubernetes/ovn-kube-f:master
-            docker save ghcr.io/ovn-org/ovn-kubernetes/ovn-kube-f:master > ${CI_IMAGE_CACHE}${CI_IMAGE_MASTER_TAR}
+            docker tag ghcr.io/ovn-org/ovn-kubernetes/ovn-kube-f:master ovn-daemonset-f:dev
+            docker save ovn-daemonset-f:dev > ${CI_IMAGE_CACHE}${CI_IMAGE_MASTER_TAR}
             gzip ${CI_IMAGE_CACHE}${CI_IMAGE_MASTER_TAR}
 
             mkdir -p ${CI_DIST_IMAGES_OUTPUT}
             cp ${CI_IMAGE_CACHE}${CI_IMAGE_MASTER_TAR}.gz ${CI_DIST_IMAGES_OUTPUT}${CI_IMAGE_MASTER_TAR}.gz
             gunzip ${CI_DIST_IMAGES_OUTPUT}${CI_IMAGE_MASTER_TAR}.gz
             echo "::set-output name=MASTER_IMAGE_RESTORED::true"
+            return
         fi
 
     # only run the following steps if the master image was not found in the cache
